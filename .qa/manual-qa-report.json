@@ -1,0 +1,210 @@
+[
+  {
+    "caseName": "one-page text-only PDF",
+    "fileName": "01-one-page-text.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.165, 0.273]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.150, 0.285]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 565
+  },
+  {
+    "caseName": "one-page text-only PDF",
+    "fileName": "01-one-page-text.pdf",
+    "pageNumber": 1,
+    "expected": "Q2 block y∈[0.330, 0.437]",
+    "actual": "Q2 chunk chunk_file_2 y∈[0.315, 0.449]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 565
+  },
+  {
+    "caseName": "multi-page text-only PDF",
+    "fileName": "02-multi-page.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.102, 0.210]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.222]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 7
+  },
+  {
+    "caseName": "multi-page text-only PDF",
+    "fileName": "02-multi-page.pdf",
+    "pageNumber": 2,
+    "expected": "Q2 block y∈[0.102, 0.210]",
+    "actual": "Q2 chunk chunk_file_2 y∈[0.087, 0.222]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 7
+  },
+  {
+    "caseName": "question near the bottom of a page",
+    "fileName": "03-bottom-question.pdf",
+    "pageNumber": 1,
+    "expected": "Q2 block y∈[0.835, 0.942]",
+    "actual": "Q2 chunk chunk_file_2 y∈[0.820, 0.954]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 4
+  },
+  {
+    "caseName": "question split across multiple lines",
+    "fileName": "04-multiline-stem.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.128, 0.275]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.288]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 4
+  },
+  {
+    "caseName": "question with image/diagram/table between stem and options",
+    "fileName": "05-diagram-gap.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.102, 0.457]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.470]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 4
+  },
+  {
+    "caseName": "two-column PDF",
+    "fileName": "06-two-column.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.102, 0.210]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.222]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 4
+  },
+  {
+    "caseName": "two-column PDF",
+    "fileName": "06-two-column.pdf",
+    "pageNumber": 1,
+    "expected": "Q2 block y∈[0.102, 0.210]",
+    "actual": "Q2 chunk chunk_file_2 y∈[0.087, 0.222]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 4
+  },
+  {
+    "caseName": "PDF where options wrap onto multiple lines",
+    "fileName": "07-wrapped-options.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.128, 0.223]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.236]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 3
+  },
+  {
+    "caseName": "PDF with repeated/similar question text",
+    "fileName": "08-similar-text.pdf",
+    "pageNumber": 1,
+    "expected": "Q1 block y∈[0.128, 0.235]",
+    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.247]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 3
+  },
+  {
+    "caseName": "PDF with repeated/similar question text",
+    "fileName": "08-similar-text.pdf",
+    "pageNumber": 1,
+    "expected": "Q2 block y∈[0.330, 0.437]",
+    "actual": "Q2 chunk chunk_file_2 y∈[0.315, 0.449]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 3
+  },
+  {
+    "caseName": "large PDF (500 pages)",
+    "fileName": "11-large-500-pages.pdf",
+    "pageNumber": 250,
+    "expected": "Q99 block y∈[0.229, 0.336]",
+    "actual": "Q99 chunk chunk_file_1 y∈[0.214, 0.348]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 146
+  },
+  {
+    "caseName": "missing sourceRegion",
+    "fileName": "n/a (resolver simulation)",
+    "pageNumber": 1,
+    "expected": "Page opens; fallback banner; no fake highlight box",
+    "actual": "Resolver returns null highlight; UI shows unconfirmed banner",
+    "passed": true
+  },
+  {
+    "caseName": "low-confidence sourceRegion",
+    "fileName": "n/a (confidence gate)",
+    "pageNumber": 1,
+    "expected": "No highlight box when confidence < 0.5",
+    "actual": "Confidence 0.3 correctly rejected by MIN_HIGHLIGHT_CONFIDENCE",
+    "passed": true,
+    "confidence": 0.3,
+    "method": "stored",
+    "sourceKind": "question-block"
+  },
+  {
+    "caseName": "coordinate scale validation",
+    "fileName": "n/a (css viewport unit test)",
+    "pageNumber": 1,
+    "expected": "Highlight validates against CSS viewport, not 2x canvas",
+    "actual": "CSS-sized region validates correctly",
+    "passed": true
+  },
+  {
+    "caseName": "no crop behavior",
+    "fileName": "n/a (code inspection)",
+    "pageNumber": 1,
+    "expected": "Full page rendered; overlay uses normalized % coords",
+    "actual": "cropCanvasToRegion removed; SourceHighlightOverlay uses percentages",
+    "passed": true
+  },
+  {
+    "caseName": "cached page preview path",
+    "fileName": "n/a (cache priority)",
+    "pageNumber": 1,
+    "expected": "server → IndexedDB → PDF.js single page",
+    "actual": "loadSourcePagePreview implements 3-tier priority; server returns 404 stub",
+    "passed": true,
+    "usedCachedPagePreview": true
+  },
+  {
+    "caseName": "single page render only",
+    "fileName": "11-large-500-pages.pdf",
+    "pageNumber": 250,
+    "expected": "Extraction scans pages; UI renders one page on demand",
+    "actual": "500-page extraction 146ms; UI uses getPage(pageNumber) only",
+    "passed": true
+  }
+]
