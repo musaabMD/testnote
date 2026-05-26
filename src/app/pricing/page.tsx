@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PricingTable } from "@clerk/nextjs";
+import { BillingActions } from "@/components/billing-actions";
 import { PublicHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
@@ -25,6 +26,9 @@ export default function PricingPage() {
             <p className="mt-3 max-w-lg text-base leading-7 text-slate-500">
               Choose a plan and manage your subscription through Clerk Billing.
             </p>
+            <div className="mt-5">
+              <BillingActions />
+            </div>
           </div>
 
           <PricingTable

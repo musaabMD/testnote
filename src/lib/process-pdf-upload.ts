@@ -7,7 +7,6 @@ import {
   highlightableSourceToPdfSource,
   type SourceChunk,
 } from "@/lib/highlightable-source";
-import { uploadSourceFileToConvex } from "@/lib/convex-source-file.client";
 import { convex } from "@/lib/convex-client";
 import { enrichQuestionsWithImages } from "@/lib/pdf-question-images";
 import { saveSourceFile } from "@/lib/pdf-source-store";
@@ -155,10 +154,7 @@ export async function processPdfUploads(
 
     const fileHash = mcqResult.fileHash;
     const addedAt = Date.now();
-    await Promise.all([
-      saveSourceFile(fileHash, file),
-      uploadSourceFileToConvex(convex, file, fileHash),
-    ]);
+    await saveSourceFile(fileHash, file);
 
     const objectUrl = URL.createObjectURL(file);
     const highlightable = buildHighlightableSourceFromUpload(

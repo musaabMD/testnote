@@ -44,4 +44,18 @@ describe("parseClerkBillingWebhook", () => {
     assert.equal(parsed?.plan, "free");
     assert.equal(parsed?.billingStatus, "past_due");
   });
+
+  it("treats trial status as canceled because free trials are disabled", () => {
+    const parsed = parseClerkBillingWebhook({
+      type: "subscription.updated",
+      data: {
+        payer_id: "user_trial",
+        status: "trialing",
+        items: [{ plan: { slug: "pro" } }],
+      },
+    });
+
+    assert.equal(parsed?.plan, "free");
+    assert.equal(parsed?.billingStatus, "canceled");
+  });
 });

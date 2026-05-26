@@ -1,3 +1,4 @@
+import { requireClerkFeature } from "@/lib/clerk-access.server";
 import { enforceApiRateLimit } from "@/lib/api-rate-limit.server";
 import { releaseQuotaReservation } from "@/lib/convex-usage-client.server";
 import { isPdfOcrRouteEnabled } from "@/lib/extraction-config";
@@ -36,6 +37,9 @@ export async function POST(request: Request) {
 
   const rateLimited = await enforceApiRateLimit(request, "ocr");
   if (rateLimited) return rateLimited;
+
+  const featureCheck = await requireClerkFeature("advancedStudy");
+  if (featureCheck instanceof Response) return featureCheck;
 
   const apiKey = process.env.OPENROUTER_API_KEY;
 

@@ -1,18 +1,28 @@
+"use client";
+
 import type { ConvexReactClient } from "convex/react";
+import type { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
+
+const MAX_CONVEX_CLIENT_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+export function sourceFileDownloadPath(fileHash: string) {
+  return `/api/pdf/source-file/download?fileId=${encodeURIComponent(fileHash)}`;
+}
 
 export async function uploadSourceFileToConvex(
   convex: ConvexReactClient,
   file: File,
   fileHash: string,
 ): Promise<boolean> {
+  if (file.size > MAX_CONVEX_CLIENT_UPLOAD_BYTES) {
+    return false;
+  }
+
   try {
-    const { key, url } = await convex.mutation(api.sourceFiles.generateR2SourceUploadUrl, {
-      fileHash,
-      fileName: file.name,
-    });
-    const response = await fetch(url, {
-      method: "PUT",
+    const uploadUrl = await convex.mutation(api.sourceFiles.generateUploadUrl, {});
+    const response = await fetch(uploadUrl, {
+      method: "POST",
       headers: {
         "Content-Type": file.type || "application/octet-stream",
       },
@@ -23,10 +33,14 @@ export async function uploadSourceFileToConvex(
       return false;
     }
 
-    await convex.mutation(api.r2.syncMetadata, { key });
-    await convex.mutation(api.sourceFiles.commitR2SourceFile, {
+    const payload = (await response.json()) as { storageId?: string };
+    if (!payload.storageId) {
+      return false;
+    }
+
+    await convex.mutation(api.sourceFiles.commitSourceFile, {
       fileHash,
-      r2Key: key,
+      storageId: payload.storageId as Id<"_storage">,
       fileName: file.name,
       mimeType: file.type || "application/octet-stream",
       sizeBytes: file.size,
@@ -47,9 +61,9 @@ export async function fetchConvexSourceFileUrl(
 ): Promise<{ url: string; fileName: string; mimeType: string } | null> {
   try {
     const row = await convex.query(api.sourceFiles.getSourceFileUrl, { fileHash });
-    if (!row?.url) return null;
+    if (!row) return null;
     return {
-      url: row.url,
+      url: sourceFileDownloadPath(fileHash),
       fileName: row.fileName,
       mimeType: row.mimeType,
     };

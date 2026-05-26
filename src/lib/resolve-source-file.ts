@@ -21,9 +21,9 @@ async function fetchSourceFileFromApi(
       fileName?: string;
       mimeType?: string;
     };
-    if (!payload.url) return null;
+    if (!payload.fileName) return null;
     return {
-      url: payload.url,
+      url: `/api/pdf/source-file/download?fileId=${encodeURIComponent(fileId)}`,
       fileName: payload.fileName ?? "source.pdf",
       mimeType: payload.mimeType ?? "application/pdf",
     };

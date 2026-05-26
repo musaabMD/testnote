@@ -9,17 +9,17 @@
     "convex:deploy": "convex deploy",
     "start": "next start",
     "lint": "eslint",
-    "test:source-qa": "npx tsx --test src/lib/__tests__/source-region-qa.test.ts src/lib/__tests__/source-page-load.test.ts",
-    "test:pipeline-safety": "npx tsx --test src/lib/__tests__/pipeline-safety.test.ts src/lib/__tests__/usage-ledger.test.ts",
-    "test:extraction-failure": "npx tsx --test src/lib/__tests__/extraction-failure-classification.test.ts",
-    "test:source-qa-manual": "npx tsx scripts/source-qa-run.mts",
-    "test:deployed-duplicate-extraction": "npx tsx scripts/test-deployed-duplicate-extraction.mts",
-    "test:clerk-billing": "npx tsx --test src/lib/__tests__/clerk-billing-webhook.test.ts",
-    "test:quiz-progress": "npx tsx --test src/lib/__tests__/quiz-progress.test.ts",
-    "test:quota-errors": "npx tsx --test src/lib/__tests__/quota-errors.test.ts",
-    "test:publish-readiness": "npx tsx scripts/publish-verification.mts",
-    "report:cost": "npx tsx scripts/internal-cost-report.mts",
-    "report:bundle": "npx tsx scripts/internal-bundle-report.mts"
+    "test:source-qa": "tsx --test src/lib/__tests__/source-region-qa.test.ts src/lib/__tests__/source-page-load.test.ts",
+    "test:pipeline-safety": "tsx --test src/lib/__tests__/pipeline-safety.test.ts src/lib/__tests__/usage-ledger.test.ts",
+    "test:extraction-failure": "tsx --test src/lib/__tests__/extraction-failure-classification.test.ts",
+    "test:source-qa-manual": "tsx scripts/source-qa-run.mts",
+    "test:deployed-duplicate-extraction": "tsx scripts/test-deployed-duplicate-extraction.mts",
+    "test:clerk-billing": "tsx --test src/lib/__tests__/clerk-billing-webhook.test.ts",
+    "test:quiz-progress": "tsx --test src/lib/__tests__/quiz-progress.test.ts",
+    "test:quota-errors": "tsx --test src/lib/__tests__/quota-errors.test.ts",
+    "test:publish-readiness": "tsx scripts/publish-verification.mts",
+    "report:cost": "tsx scripts/internal-cost-report.mts",
+    "report:bundle": "tsx scripts/internal-bundle-report.mts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.65",
@@ -67,6 +67,7 @@
     "eslint-config-next": "16.2.6",
     "pdf-lib": "^1.17.1",
     "tailwindcss": "^4",
+    "tsx": "^4.20.3",
     "typescript": "^5"
   }
 }

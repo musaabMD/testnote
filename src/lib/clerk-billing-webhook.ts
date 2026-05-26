@@ -114,7 +114,8 @@ function normalizeBillingStatus(statusRaw: string | null, eventType: string): Bi
 
   if (normalized.includes("past_due") || normalized.includes("pastdue")) return "past_due";
   if (normalized.includes("cancel") || normalized.includes("ended")) return "canceled";
-  if (normalized.includes("trial")) return "trialing";
+  // No free trials — treat trial status as inactive.
+  if (normalized.includes("trial")) return "canceled";
   if (normalized.includes("active")) return "active";
   if (normalized.includes("none") || normalized.includes("free")) return "none";
   return "none";

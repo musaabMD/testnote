@@ -112,7 +112,8 @@ function getEffectiveUserLimits(user: Doc<"users">): PlanLimits {
 }
 
 function isBillingActive(status: string | undefined): boolean {
-  return status === "active" || status === "trialing" || status === "none";
+  // Free tier uses "none". Paid subscriptions must be "active" — no free trials.
+  return status === "active" || status === "none";
 }
 
 async function sumActiveReservations(ctx: MutationCtx, userId: Id<"users">) {
