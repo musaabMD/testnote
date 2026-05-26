@@ -372,6 +372,7 @@ export async function runPdfMcqExtraction(args: {
   fileHash: string;
   pageCount: number;
   clerkUserId: string;
+  email?: string | null;
   jobId?: string;
 }): Promise<ExtractionSuccessResponse | ExtractionErrorResponse> {
   const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
@@ -406,6 +407,7 @@ async function runPdfMcqExtractionCore(args: {
   fileHash: string;
   pageCount: number;
   clerkUserId: string;
+  email?: string | null;
   jobId?: string;
 }): Promise<ExtractionSuccessResponse | ExtractionErrorResponse> {
   const {
@@ -524,6 +526,7 @@ async function runPdfMcqExtractionCore(args: {
 
   const trackingBase: Omit<TrackedOpenRouterContext, "reservationId"> = {
     clerkUserId,
+    email: args.email,
     feature: "extract",
     jobId: job.id,
     fileHash,
@@ -617,6 +620,7 @@ async function runPdfMcqExtractionCore(args: {
 
   const preflight = await preflightTrackedAiCall({
     clerkUserId,
+    email: args.email,
     feature: "extract",
     estimatedCostUsd: estimatedCost,
     estimatedPages: pageCount,

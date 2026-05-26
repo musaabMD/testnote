@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as adminAccess from "../adminAccess.js";
+import type * as adminAuth from "../adminAuth.js";
 import type * as apiRateLimits from "../apiRateLimits.js";
 import type * as auditEvents from "../auditEvents.js";
 import type * as billing from "../billing.js";
@@ -29,6 +31,7 @@ import type * as studyFiles from "../studyFiles.js";
 import type * as studyRag from "../studyRag.js";
 import type * as usageLedger from "../usageLedger.js";
 import type * as usageLedgerHelpers from "../usageLedgerHelpers.js";
+import type * as userMaintenance from "../userMaintenance.js";
 import type * as users from "../users.js";
 import type * as workflowControls from "../workflowControls.js";
 import type * as workflows from "../workflows.js";
@@ -40,7 +43,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   adminAccess: typeof adminAccess;
+  adminAuth: typeof adminAuth;
   apiRateLimits: typeof apiRateLimits;
   auditEvents: typeof auditEvents;
   billing: typeof billing;
@@ -61,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   studyRag: typeof studyRag;
   usageLedger: typeof usageLedger;
   usageLedgerHelpers: typeof usageLedgerHelpers;
+  userMaintenance: typeof userMaintenance;
   users: typeof users;
   workflowControls: typeof workflowControls;
   workflows: typeof workflows;

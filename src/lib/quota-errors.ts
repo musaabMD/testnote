@@ -22,6 +22,13 @@ const BILLING_INACTIVE_PATTERN =
 
 const RATE_LIMIT_PATTERN = /rate limit exceeded|too many requests|try again later/i;
 
+function stripRouteGuidance(message: string): string {
+  return message
+    .replace(/\s+(Upgrade|Subscribe|Update billing|Manage billing)\s+[^.]*\/pricing[^.]*\./gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function classifyUsageError(message: string): ClassifiedUsageError {
   const trimmed = message.trim();
   const normalized = trimmed || "Something went wrong.";
@@ -38,7 +45,9 @@ export function classifyUsageError(message: string): ClassifiedUsageError {
     return {
       kind: "billing_inactive",
       title: "Billing inactive",
-      message: normalized,
+      message:
+        stripRouteGuidance(normalized) ||
+        "Your subscription needs attention before AI extraction can continue.",
       primaryHref: "/pricing",
       primaryLabel: "Manage billing",
     };
@@ -47,8 +56,10 @@ export function classifyUsageError(message: string): ClassifiedUsageError {
   if (PLAN_QUOTA_PATTERN.test(normalized)) {
     return {
       kind: "plan_quota",
-      title: "Plan limit reached",
-      message: normalized,
+      title: "Upgrade to continue",
+      message:
+        stripRouteGuidance(normalized) ||
+        "AI extraction is available on paid plans.",
       primaryHref: "/pricing",
       primaryLabel: "Upgrade plan",
     };

@@ -79,6 +79,8 @@ export type PdfFileQueueItem = {
   pageCount?: number;
   addedAt?: number;
   addedBy?: string;
+  examSlug?: string;
+  examName?: string;
   resourceKind?: "file" | "link";
   sourceChunks?: SourceChunk[];
   ragSourceChunks?: RagSourceChunk[];
@@ -429,6 +431,10 @@ export function isPdfFileQueue(value: unknown): value is PdfFileQueueItem[] {
           typeof (item as Partial<PdfFileQueueItem>).addedAt === "number") &&
         (typeof (item as Partial<PdfFileQueueItem>).addedBy === "undefined" ||
           typeof (item as Partial<PdfFileQueueItem>).addedBy === "string") &&
+        (typeof (item as Partial<PdfFileQueueItem>).examSlug === "undefined" ||
+          typeof (item as Partial<PdfFileQueueItem>).examSlug === "string") &&
+        (typeof (item as Partial<PdfFileQueueItem>).examName === "undefined" ||
+          typeof (item as Partial<PdfFileQueueItem>).examName === "string") &&
         (typeof (item as Partial<PdfFileQueueItem>).sourceChunks === "undefined" ||
           Array.isArray((item as Partial<PdfFileQueueItem>).sourceChunks)) &&
         (typeof (item as Partial<PdfFileQueueItem>).ragSourceChunks === "undefined" ||

@@ -14,6 +14,7 @@ import type { AiFeature } from "@/lib/usage-types";
 
 export type TrackedOpenRouterContext = {
   clerkUserId: string;
+  email?: string | null;
   feature: AiFeature;
   reservationId?: string;
   jobId?: string;
@@ -52,6 +53,7 @@ export async function trackedOpenRouterFetch(
 
     await commitAiUsage({
       clerkUserId: ctx.clerkUserId,
+      email: ctx.email,
       feature: ctx.feature,
       model,
       promptTokens: usage.promptTokens,
@@ -71,6 +73,7 @@ export async function trackedOpenRouterFetch(
 
 export async function preflightTrackedAiCall(args: {
   clerkUserId: string;
+  email?: string | null;
   feature: AiFeature;
   estimatedCostUsd: number;
   estimatedPages?: number;
@@ -119,6 +122,7 @@ export async function preflightTrackedAiCall(args: {
 
 export async function commitTrackedChatUsage(args: {
   clerkUserId: string;
+  email?: string | null;
   reservationId?: string;
   feature: "ask" | "tutor";
   model: string;
@@ -126,6 +130,7 @@ export async function commitTrackedChatUsage(args: {
 }): Promise<void> {
   await commitAiUsage({
     clerkUserId: args.clerkUserId,
+    email: args.email,
     feature: args.feature,
     model: args.model,
     promptTokens: args.usage.promptTokens,

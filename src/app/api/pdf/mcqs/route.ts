@@ -12,7 +12,7 @@ import {
   reserveCostUsd,
 } from "@/lib/plan-limits.server";
 import { runPdfMcqExtraction } from "@/lib/pdf-extraction.server";
-import { getQuotaSubject } from "@/lib/request-user.server";
+import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import { getPdfPageCountForUpload } from "@/lib/pdfjs-server.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
 import { preflightTrackedAiCall } from "@/lib/tracked-openrouter.server";
@@ -47,6 +47,11 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Upload a supported file." }, { status: 400 });
   }
+  const requestedFileName = formData.get("fileName");
+  const displayFileName =
+    typeof requestedFileName === "string" && requestedFileName.trim()
+      ? requestedFileName.trim()
+      : file.name;
 
   if (!isSupportedUploadFile(file)) {
     return Response.json(
@@ -73,7 +78,8 @@ export async function POST(request: Request) {
   const mimeType = inferUploadMimeType(file);
   const extractionMode = parseExtractionMode(formData.get("extractionMode"));
   const pageCount = await getPageCountForUpload(file, arrayBuffer, mimeType);
-  const clerkUserId = await getQuotaSubject(request);
+  const quotaSubject = await getQuotaSubjectDetails(request);
+  const clerkUserId = quotaSubject.clerkUserId;
   const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
   const estimatedCostUsd = reserveCostUsd(
     estimateExtractionCostUsd({
@@ -85,6 +91,7 @@ export async function POST(request: Request) {
 
   const preflight = await preflightTrackedAiCall({
     clerkUserId,
+    email: quotaSubject.email,
     feature: "extract",
     estimatedCostUsd,
     estimatedPages: pageCount,
@@ -110,7 +117,7 @@ export async function POST(request: Request) {
   await createExtractionJob({
     jobId,
     fileHash,
-    fileName: file.name,
+    fileName: displayFileName,
     mimeType,
     extractionMode,
     extractionModel: model,
@@ -120,8 +127,9 @@ export async function POST(request: Request) {
 
   void storeSourceFileInConvex({
     clerkUserId,
+    ownerEmail: quotaSubject.email,
     fileHash,
-    fileName: file.name,
+    fileName: displayFileName,
     mimeType,
     arrayBuffer,
   });
@@ -131,7 +139,7 @@ export async function POST(request: Request) {
       try {
         await runPdfMcqExtraction({
           apiKey,
-          fileName: file.name,
+          fileName: displayFileName,
           mimeType,
           arrayBuffer,
           fileSizeBytes: file.size,
@@ -139,6 +147,7 @@ export async function POST(request: Request) {
           fileHash,
           pageCount,
           clerkUserId,
+          email: quotaSubject.email,
           jobId,
         });
       } catch (error) {
@@ -157,7 +166,7 @@ export async function POST(request: Request) {
         jobId,
         status: "queued",
         fileHash,
-        fileName: file.name,
+        fileName: displayFileName,
         pageCount,
       },
       { status: 202 },

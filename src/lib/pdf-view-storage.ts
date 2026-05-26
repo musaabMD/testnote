@@ -17,6 +17,7 @@ export const PDF_QUESTION_BOOKMARKS_KEY = "drnote-pdf-question-bookmarks";
 export const PDF_QUIZ_ANSWERS_KEY = "drnote-pdf-quiz-answers";
 export const PDF_FILE_SUBJECTS_KEY = "drnote-pdf-file-subjects";
 export const PDF_QUESTION_CHAT_KEY = "drnote-pdf-question-chat";
+export const PDF_FILE_QUEUE_UPDATED_EVENT = "drnote:pdf-file-queue-updated";
 
 export type StoredChatMessage = { role: "user" | "assistant"; text: string };
 
@@ -171,6 +172,7 @@ function writeFileQueueStorage(queue: PdfFileQueueItem[]) {
   window.sessionStorage.removeItem(PDF_FILE_QUEUE_STORAGE_KEY);
   window.sessionStorage.removeItem(PDF_MCQ_STORAGE_KEY);
   window.sessionStorage.removeItem(PDF_SOURCE_STORAGE_KEY);
+  window.dispatchEvent(new CustomEvent(PDF_FILE_QUEUE_UPDATED_EVENT));
 }
 
 export function loadFiles(): PdfFileQueueItem[] {

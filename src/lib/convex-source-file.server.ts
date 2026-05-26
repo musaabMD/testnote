@@ -2,6 +2,7 @@ import { isConvexStorageConfigured } from "@/lib/server-storage.server";
 
 export async function storeSourceFileInConvex(args: {
   clerkUserId: string | null | undefined;
+  ownerEmail?: string | null;
   fileHash: string;
   fileName: string;
   mimeType: string;
@@ -23,6 +24,7 @@ export async function storeSourceFileInConvex(args: {
     const storageId = await client.action(api.sourceFiles.storeSourceFileFromServer, {
       secret: process.env.EXTRACTION_STORAGE_SECRET!,
       clerkUserId: args.clerkUserId,
+      ownerEmail: args.ownerEmail ?? null,
       fileHash: args.fileHash,
       fileName: args.fileName,
       mimeType: args.mimeType,

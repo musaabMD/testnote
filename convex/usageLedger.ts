@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { getCurrentPeriodBounds, getPlanLimits, normalizeAppPlan } from "./planLimits";
-import { isAdminClerkUserId } from "./adminAccess";
+import { isAdminUser } from "./adminAccess";
 import {
   assertUsageSecret,
   countTodayChatMessages,
@@ -17,6 +17,7 @@ export const preflightAiUsage = mutation({
   args: {
     secret: v.string(),
     clerkUserId: v.string(),
+    email: v.optional(v.string()),
     feature: v.union(
       v.literal("extract"),
       v.literal("ask"),
@@ -35,17 +36,27 @@ export const preflightAiUsage = mutation({
     const shouldReserve = args.reserve ?? true;
     assertUsageSecret(args.secret);
 
-    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
-    const admin = isAdminClerkUserId(args.clerkUserId);
+    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId, args.email);
+    const admin = isAdminUser({
+      clerkUserId: args.clerkUserId,
+      email: args.email,
+    });
 
-    if (!admin && !hasPaidPlan(user)) {
+    if (admin) {
+      return {
+        allowed: true,
+        plan: normalizeAppPlan(user.plan),
+      };
+    }
+
+    if (!hasPaidPlan(user)) {
       return {
         allowed: false,
         reason: "A paid plan is required to use AI features. Upgrade at /pricing.",
       };
     }
 
-    if (!admin && !isBillingActive(user.billingStatus ?? "none")) {
+    if (!isBillingActive(user.billingStatus ?? "none")) {
       return {
         allowed: false,
         reason: "Subscription inactive. Update billing to continue.",
@@ -190,6 +201,7 @@ export const commitAiUsage = mutation({
   args: {
     secret: v.string(),
     clerkUserId: v.string(),
+    email: v.optional(v.string()),
     reservationId: v.optional(v.id("quotaReservations")),
     feature: v.union(
       v.literal("extract"),
@@ -218,8 +230,9 @@ export const commitAiUsage = mutation({
   handler: async (ctx, args) => {
     assertUsageSecret(args.secret);
 
-    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId, args.email);
     const period = await getOrCreateUsagePeriod(ctx, user._id);
+    const now = Date.now();
 
     await ctx.db.insert("aiUsageEvents", {
       userId: user._id,
@@ -235,7 +248,28 @@ export const commitAiUsage = mutation({
       openRouterGenerationId: args.openRouterGenerationId,
       cached: args.cached,
       status: args.status,
-      createdAt: Date.now(),
+      createdAt: now,
+    });
+
+    await ctx.db.insert("costLedger", {
+      userId: args.clerkUserId,
+      fileId: args.fileHash,
+      jobId: args.jobId,
+      category: "ai",
+      provider: "openrouter",
+      model: args.model,
+      inputTokens: args.promptTokens,
+      outputTokens: args.completionTokens,
+      units: args.totalTokens,
+      unitCostUsd: args.totalTokens > 0 ? args.costUsd / args.totalTokens : args.costUsd,
+      costUsd: args.costUsd,
+      metadata: {
+        feature: args.feature,
+        openRouterGenerationId: args.openRouterGenerationId,
+        cached: args.cached,
+        status: args.status,
+      },
+      createdAt: now,
     });
 
     await ctx.db.patch(period._id, {
@@ -251,7 +285,7 @@ export const commitAiUsage = mutation({
       chatMessages:
         period.chatMessages +
         (args.feature === "ask" || args.feature === "tutor" ? 1 : 0),
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
 
     if (args.reservationId) {
@@ -278,6 +312,7 @@ export const setUserPlanByClerkId = mutation({
   args: {
     secret: v.string(),
     clerkUserId: v.string(),
+    email: v.optional(v.string()),
     plan: v.union(
       v.literal("free"),
       v.literal("starter"),
@@ -297,7 +332,7 @@ export const setUserPlanByClerkId = mutation({
   handler: async (ctx, args) => {
     assertUsageSecret(args.secret);
 
-    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
+    const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId, args.email);
     const limits = getPlanLimits(args.plan);
 
     await ctx.db.patch(user._id, {

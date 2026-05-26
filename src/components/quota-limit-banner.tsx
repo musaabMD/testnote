@@ -1,7 +1,19 @@
 "use client";
 
+import { AlertCircle, ArrowRight, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { classifyUsageError } from "@/lib/quota-errors";
+import { cn } from "@/lib/utils";
 
 type QuotaLimitBannerProps = {
   message: string;
@@ -19,6 +31,15 @@ export function QuotaLimitBanner({
     classified.kind === "plan_quota" ||
     classified.kind === "billing_inactive" ||
     classified.kind === "rate_limit";
+  const showUpgradePrompt =
+    classified.kind === "plan_quota" || classified.kind === "billing_inactive";
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+
+  useEffect(() => {
+    if (showUpgradePrompt && !compact) {
+      setUpgradeOpen(true);
+    }
+  }, [compact, message, showUpgradePrompt]);
 
   const toneClass =
     classified.kind === "rate_limit"
@@ -35,11 +56,134 @@ export function QuotaLimitBanner({
     );
   }
 
+  if (showUpgradePrompt) {
+    const isBillingInactive = classified.kind === "billing_inactive";
+    const promptAccent = isBillingInactive
+      ? "from-violet-600 to-blue-600"
+      : "from-blue-600 to-cyan-600";
+
+    return (
+      <Dialog open={upgradeOpen} onOpenChange={(open) => setUpgradeOpen(open)}>
+        <div
+          className={cn(
+            "flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-800 shadow-sm",
+            compact ? "text-xs" : "text-sm",
+            className,
+          )}
+          role="alert"
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <span
+              className={cn(
+                "mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-lg",
+                isBillingInactive
+                  ? "bg-violet-50 text-violet-700"
+                  : "bg-blue-50 text-blue-700",
+              )}
+            >
+              <CreditCard className="size-3.5" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-950">{classified.title}</p>
+              <p className="mt-0.5 leading-relaxed text-slate-600">
+                {classified.message}
+              </p>
+            </div>
+          </div>
+          {classified.primaryHref && classified.primaryLabel ? (
+            <button
+              className={cn(
+                "shrink-0 rounded-lg px-2.5 py-1.5 font-semibold text-white transition-colors",
+                isBillingInactive
+                  ? "bg-violet-700 hover:bg-violet-800"
+                  : "bg-blue-700 hover:bg-blue-800",
+                compact ? "text-xs" : "text-sm",
+              )}
+              onClick={() => setUpgradeOpen(true)}
+              type="button"
+            >
+              {compact ? "Plans" : classified.primaryLabel}
+            </button>
+          ) : null}
+        </div>
+
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+          <div className={cn("h-1.5 bg-gradient-to-r", promptAccent)} />
+          <div className="p-5">
+            <DialogHeader>
+              <div
+                className={cn(
+                  "flex size-10 items-center justify-center rounded-xl text-white",
+                  isBillingInactive ? "bg-violet-700" : "bg-blue-700",
+                )}
+              >
+                <CreditCard className="size-5" />
+              </div>
+              <DialogTitle className="text-xl font-bold tracking-normal text-slate-950">
+                {classified.title}
+              </DialogTitle>
+              <DialogDescription className="text-sm leading-relaxed text-slate-600">
+                {isBillingInactive
+                  ? "Update billing to keep extracting questions from your files."
+                  : "Choose a plan to keep extracting questions from your files."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-5 grid gap-2 text-sm text-slate-700">
+              {[
+                "AI question extraction",
+                "Larger upload and monthly limits",
+                "Study tools for your saved files",
+              ].map((item) => (
+                <div className="flex items-center gap-2" key={item}>
+                  <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <DialogFooter className="bg-slate-50">
+            <DialogClose
+              render={
+                <button
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                  type="button"
+                />
+              }
+            >
+              Not now
+            </DialogClose>
+            {classified.primaryHref && classified.primaryLabel ? (
+              <Link
+                className={cn(
+                  "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-white transition-colors",
+                  isBillingInactive
+                    ? "bg-violet-700 hover:bg-violet-800"
+                    : "bg-blue-700 hover:bg-blue-800",
+                )}
+                href={classified.primaryHref}
+              >
+                {classified.primaryLabel}
+                <ArrowRight className="size-4" />
+              </Link>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <div
       className={`rounded-xl border px-4 py-3 ${toneClass} ${className}`}
       role="alert"
     >
+      <div className="flex gap-2">
+        {isActionable ? (
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+        ) : null}
+        <div>
       {isActionable ? (
         <p className="text-sm font-semibold">{classified.title}</p>
       ) : null}
@@ -73,6 +217,8 @@ export function QuotaLimitBanner({
           Rate limits protect shared AI capacity. Wait a minute before retrying.
         </p>
       ) : null}
+        </div>
+      </div>
     </div>
   );
 }

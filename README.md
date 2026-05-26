@@ -18,6 +18,7 @@ Next.js runtime:
 NEXT_PUBLIC_CONVEX_URL=
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
+ADMIN_EMAIL=mousab.r@gmail.com
 NEXT_PUBLIC_APP_URL=
 OPENROUTER_API_KEY=
 EXTRACTION_STORAGE_SECRET=
@@ -34,6 +35,7 @@ Convex runtime:
 CLERK_JWT_ISSUER_DOMAIN=https://clerk.drnote.co
 CLERK_JWT_ISSUER_DOMAIN_DEV=https://your-app.clerk.accounts.dev
 ADMIN_CLERK_USER_IDS=user_dev,user_prod
+ADMIN_EMAIL=mousab.r@gmail.com
 EXTRACTION_STORAGE_SECRET=
 USAGE_LEDGER_SECRET=
 STRIPE_SECRET_KEY=
@@ -46,6 +48,7 @@ RESEND_WEBHOOK_SECRET=
 RESEND_FROM_EMAIL=
 CLOUDFLARE_ACCOUNT_ID=5000e0a4f0ca6dd90b08bde9dc11ccb9
 R2_BUCKET=drnote-uploads-prod
+R2_OBJECT_PREFIX=prod
 R2_ENDPOINT=https://5000e0a4f0ca6dd90b08bde9dc11ccb9.r2.cloudflarestorage.com
 R2_TOKEN=
 R2_ACCESS_KEY_ID=
@@ -69,9 +72,9 @@ EXTRACTION_LOCK_RETRY_COOLDOWN_MS=60000
 4. Completed jobs return the persisted extraction record with MCQs and source chunks.
 5. Failed jobs return `failureReason` and user-facing error text.
 
-Convex tables involved: `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `extractionJobs`, `questionSources`, `usagePeriods`, `aiUsageEvents`, `quotaReservations`, and `appAuditEvents`.
+Convex tables involved: `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `extractionJobs`, `questionSources`, `usagePeriods`, `aiUsageEvents`, `costLedger`, `quotaReservations`, and `appAuditEvents`.
 
-Original signed-in source files are stored through the Convex R2 component when `R2_*` Convex environment variables are configured. Existing Convex `_storage` source-file rows still resolve as a fallback.
+Original signed-in source files are stored through the Convex R2 component when `R2_*` Convex environment variables are configured. Use a separate `R2_OBJECT_PREFIX` per environment, for example `prod` and `dev`, if deployments share one bucket. Source-file object keys use a hashed email owner segment when available so recreating a Clerk user for the same email does not create a second visible user folder. Existing Convex `_storage` source-file rows still resolve as a fallback.
 
 ## Quota Enforcement Checks
 

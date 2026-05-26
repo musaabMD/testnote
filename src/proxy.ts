@@ -1,7 +1,11 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isProtectedRoute = createRouteMatcher(["/dashboard(.*)", "/pdf(.*)"]);
+const isProtectedRoute = createRouteMatcher([
+  "/admin(.*)",
+  "/dashboard(.*)",
+  "/pdf(.*)",
+]);
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const clerkProxy = clerkEnabled

@@ -11,7 +11,7 @@ import {
   estimateChatCostUsd,
   reserveCostUsd,
 } from "@/lib/plan-limits.server";
-import { getQuotaSubject } from "@/lib/request-user.server";
+import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import {
   preflightTrackedAiCall,
   commitTrackedChatUsage,
@@ -63,12 +63,14 @@ export async function POST(req: Request) {
       ? getOpenRouterModel("OPENROUTER_CHAT_MODEL")
       : process.env.OPENAI_MODEL ?? "gpt-5-mini";
 
-  const clerkUserId = await getQuotaSubject(req);
+  const quotaSubject = await getQuotaSubjectDetails(req);
+  const clerkUserId = quotaSubject.clerkUserId;
   const chatFeature = system?.includes("DrNote AI") ? "ask" : "tutor";
   const estimatedCost = reserveCostUsd(estimateChatCostUsd(model));
 
   const preflight = await preflightTrackedAiCall({
     clerkUserId,
+    email: quotaSubject.email,
     feature: chatFeature,
     estimatedCostUsd: estimatedCost,
     model,
@@ -113,6 +115,7 @@ export async function POST(req: Request) {
 
       await commitTrackedChatUsage({
         clerkUserId,
+        email: quotaSubject.email,
         feature: chatFeature,
         model,
         usage: openRouterUsage,

@@ -6,7 +6,7 @@ import {
   estimateGrammarCostUsd,
   reserveCostUsd,
 } from "@/lib/plan-limits.server";
-import { getQuotaSubject } from "@/lib/request-user.server";
+import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import { preflightTrackedAiCall } from "@/lib/tracked-openrouter.server";
 
 export const runtime = "nodejs";
@@ -40,12 +40,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const clerkUserId = await getQuotaSubject(request);
+  const quotaSubject = await getQuotaSubjectDetails(request);
+  const clerkUserId = quotaSubject.clerkUserId;
   const model = getOpenRouterModel("OPENROUTER_GRAMMAR_MODEL");
   const feature = "grammar" as const;
 
   const preflight = await preflightTrackedAiCall({
     clerkUserId,
+    email: quotaSubject.email,
     feature,
     estimatedCostUsd: reserveCostUsd(estimateGrammarCostUsd()),
     model,
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
 
   const tracking = {
     clerkUserId,
+    email: quotaSubject.email,
     feature,
     reservationId: preflight.reservationId,
   };

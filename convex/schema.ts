@@ -395,6 +395,198 @@ export default defineSchema({
     .index("by_job", ["jobId"])
     .index("by_file_hash", ["fileHash"]),
 
+  userProfiles: defineTable({
+    clerkUserId: v.string(),
+    email: v.string(),
+    name: v.optional(v.string()),
+    role: v.union(v.literal("user"), v.literal("admin")),
+    plan: v.union(
+      v.literal("free"),
+      v.literal("basic"),
+      v.literal("starter"),
+      v.literal("pro"),
+      v.literal("school"),
+    ),
+    examGoal: v.optional(v.string()),
+    stripeCustomerId: v.optional(v.string()),
+    subscriptionStatus: v.union(
+      v.literal("free"),
+      v.literal("active"),
+      v.literal("trialing"),
+      v.literal("past_due"),
+      v.literal("canceled"),
+      v.literal("none"),
+    ),
+    createdAt: v.number(),
+    lastActiveAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_clerk_user_id", ["clerkUserId"])
+    .index("by_email", ["email"])
+    .index("by_role", ["role"]),
+
+  billingLedger: defineTable({
+    userId: v.string(),
+    event: v.union(
+      v.literal("subscription_payment"),
+      v.literal("pu_pack_purchase"),
+      v.literal("refund"),
+      v.literal("chargeback"),
+    ),
+    stripeInvoiceId: v.optional(v.string()),
+    stripePaymentIntentId: v.optional(v.string()),
+    grossAmountUsd: v.number(),
+    stripeFeeUsd: v.number(),
+    netRevenueUsd: v.number(),
+    plan: v.union(
+      v.literal("basic"),
+      v.literal("starter"),
+      v.literal("pro"),
+      v.literal("school"),
+      v.literal("pack"),
+      v.literal("free"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_created", ["createdAt"])
+    .index("by_stripe_invoice", ["stripeInvoiceId"])
+    .index("by_stripe_payment_intent", ["stripePaymentIntentId"]),
+
+  costLedger: defineTable({
+    userId: v.string(),
+    fileId: v.optional(v.string()),
+    jobId: v.optional(v.string()),
+    category: v.union(
+      v.literal("ai"),
+      v.literal("worker"),
+      v.literal("r2_storage"),
+      v.literal("r2_operations"),
+      v.literal("convex"),
+      v.literal("other"),
+    ),
+    provider: v.optional(v.string()),
+    model: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    units: v.number(),
+    unitCostUsd: v.number(),
+    costUsd: v.number(),
+    metadata: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_created", ["createdAt"])
+    .index("by_category", ["category"])
+    .index("by_file", ["fileId"])
+    .index("by_job", ["jobId"]),
+
+  fileAnalytics: defineTable({
+    fileId: v.string(),
+    userId: v.string(),
+    originalName: v.string(),
+    mimeType: v.string(),
+    fileType: v.union(
+      v.literal("selectable_pdf"),
+      v.literal("scanned_pdf"),
+      v.literal("dense_notability"),
+      v.literal("slide_pdf"),
+      v.literal("image"),
+      v.literal("text"),
+      v.literal("other"),
+    ),
+    examGoal: v.optional(v.string()),
+    pageCount: v.number(),
+    puReserved: v.number(),
+    puCharged: v.number(),
+    puRefunded: v.number(),
+    questionCount: v.number(),
+    extractedCount: v.number(),
+    generatedCount: v.number(),
+    needsReviewCount: v.number(),
+    retryCount: v.number(),
+    failedPageCount: v.number(),
+    noisePageCount: v.number(),
+    aiCostUsd: v.number(),
+    workerCostUsd: v.number(),
+    r2CostUsd: v.number(),
+    convexCostUsd: v.number(),
+    totalCostUsd: v.number(),
+    processingStartedAt: v.number(),
+    processingFinishedAt: v.number(),
+    processingMs: v.number(),
+    status: v.union(
+      v.literal("done"),
+      v.literal("failed"),
+      v.literal("partial"),
+      v.literal("processing"),
+    ),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_file", ["fileId"])
+    .index("by_started", ["processingStartedAt"])
+    .index("by_status", ["status"]),
+
+  jobSummaries: defineTable({
+    jobId: v.string(),
+    userId: v.string(),
+    fileId: v.string(),
+    pageCount: v.number(),
+    puReserved: v.number(),
+    puCharged: v.number(),
+    puRefunded: v.number(),
+    existingQuestionPages: v.number(),
+    studyContentPages: v.number(),
+    mixedPages: v.number(),
+    noisePages: v.number(),
+    extractedQuestions: v.number(),
+    generatedQuestions: v.number(),
+    incompleteQuestions: v.number(),
+    needsReviewQuestions: v.number(),
+    geminiCalls: v.number(),
+    openRouterCalls: v.number(),
+    retryCount: v.number(),
+    level3RetryCount: v.number(),
+    aiInputTokens: v.number(),
+    aiOutputTokens: v.number(),
+    aiCostUsd: v.number(),
+    workerMs: v.number(),
+    workerCostUsd: v.number(),
+    r2BytesWritten: v.number(),
+    r2OperationCount: v.number(),
+    r2CostUsd: v.number(),
+    totalCostUsd: v.number(),
+    startedAt: v.number(),
+    finishedAt: v.number(),
+    status: v.union(v.literal("done"), v.literal("failed"), v.literal("partial")),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_user", ["userId"])
+    .index("by_file", ["fileId"])
+    .index("by_started", ["startedAt"]),
+
+  userQuota: defineTable({
+    userId: v.string(),
+    plan: v.union(
+      v.literal("free"),
+      v.literal("basic"),
+      v.literal("starter"),
+      v.literal("pro"),
+      v.literal("school"),
+    ),
+    monthlyPuLimit: v.number(),
+    dailyPuLimit: v.number(),
+    currentMonthPu: v.number(),
+    todayPu: v.number(),
+    extraPuBalance: v.number(),
+    resetAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_reset", ["resetAt"]),
+
   examCatalog: defineTable({
     slug: v.string(),
     name: v.string(),

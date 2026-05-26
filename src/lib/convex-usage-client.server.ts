@@ -37,6 +37,7 @@ export type PreflightResult = {
 
 export async function preflightAiUsage(args: {
   clerkUserId: string;
+  email?: string | null;
   feature: AiFeature;
   estimatedCostUsd: number;
   estimatedPages?: number;
@@ -67,6 +68,7 @@ export async function preflightAiUsage(args: {
     return await client.mutation(api.usageLedger.preflightAiUsage, {
       secret,
       clerkUserId: args.clerkUserId,
+      email: args.email ?? undefined,
       feature: args.feature,
       estimatedCostUsd: args.estimatedCostUsd,
       estimatedPages: args.estimatedPages,
@@ -89,6 +91,7 @@ export async function preflightAiUsage(args: {
 
 export async function commitAiUsage(args: {
   clerkUserId: string;
+  email?: string | null;
   reservationId?: string;
   feature: AiFeature;
   model: string;
@@ -117,6 +120,7 @@ export async function commitAiUsage(args: {
     await client.mutation(api.usageLedger.commitAiUsage, {
       secret,
       clerkUserId: args.clerkUserId,
+      email: args.email ?? undefined,
       reservationId: args.reservationId as never,
       feature: args.feature,
       model: args.model,

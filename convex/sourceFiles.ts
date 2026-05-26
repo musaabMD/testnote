@@ -26,19 +26,49 @@ function safePathSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || "unknown";
 }
 
+function r2ObjectPrefixSegments() {
+  return (process.env.R2_OBJECT_PREFIX ?? "")
+    .split("/")
+    .map((segment) => safePathSegment(segment.trim()))
+    .filter(Boolean);
+}
+
+async function sha256Hex(value: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function storageOwnerSegment(args: {
+  clerkUserId: string;
+  ownerEmail?: string | null;
+}) {
+  const email = args.ownerEmail?.trim().toLowerCase();
+  if (email) {
+    return `email_${(await sha256Hex(email)).slice(0, 32)}`;
+  }
+  return safePathSegment(args.clerkUserId);
+}
+
 function fileExtension(fileName: string) {
   const match = fileName.match(/\.([a-zA-Z0-9]{1,12})$/);
   return match ? `.${match[1]!.toLowerCase()}` : "";
 }
 
-function sourceFileR2Key(args: {
+async function sourceFileR2Key(args: {
   clerkUserId: string;
+  ownerEmail?: string | null;
   fileHash: string;
   fileName: string;
 }) {
   return [
+    ...r2ObjectPrefixSegments(),
     "users",
-    safePathSegment(args.clerkUserId),
+    await storageOwnerSegment(args),
     "source-files",
     safePathSegment(args.fileHash),
     `original-${crypto.randomUUID()}${fileExtension(args.fileName)}`,
@@ -92,8 +122,9 @@ export const generateR2SourceUploadUrl = mutation({
     }
 
     return await r2.generateUploadUrl(
-      sourceFileR2Key({
+      await sourceFileR2Key({
         clerkUserId: identity.subject,
+        ownerEmail: identity.email,
         fileHash: args.fileHash,
         fileName: args.fileName,
       }),
@@ -272,6 +303,7 @@ export const storeSourceFileFromServer = action({
   args: {
     secret: v.string(),
     clerkUserId: v.string(),
+    ownerEmail: v.optional(v.union(v.string(), v.null())),
     fileHash: v.string(),
     fileName: v.string(),
     mimeType: v.string(),
@@ -286,7 +318,7 @@ export const storeSourceFileFromServer = action({
     }
 
     const r2Key = await r2.store(ctx, new Blob([args.fileBytes], { type: args.mimeType }), {
-      key: sourceFileR2Key(args),
+      key: await sourceFileR2Key(args),
       type: args.mimeType,
       disposition: `attachment; filename="${args.fileName.replace(/["\\]/g, "_")}"`,
       cacheControl: "private, max-age=3600",

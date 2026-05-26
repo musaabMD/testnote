@@ -4,7 +4,7 @@ import { StudyFileCard } from "@/components/pdf/study-file-card";
 import { PublicHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { useStudyFiles } from "@/hooks/use-study-files";
-import { useExamBySlug } from "@/hooks/use-exam-catalog";
+import { useExamBySlug, useExamCatalog } from "@/hooks/use-exam-catalog";
 import { CATEGORY_COLORS } from "@/lib/exams";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import {
@@ -53,6 +53,7 @@ export default function ExamLandingPage() {
   const params = useParams();
   const slug = typeof params.slug === "string" ? params.slug : "";
   const { exam, isLoading: examLoading } = useExamBySlug(slug);
+  const { exams: examOptions } = useExamCatalog();
   const libraryRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
@@ -64,12 +65,32 @@ export default function ExamLandingPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [notice, setNotice] = useState("");
   const [fileSearch, setFileSearch] = useState("");
+  const [isUploadTagPickerOpen, setIsUploadTagPickerOpen] = useState(false);
+  const [selectedUploadExamSlug, setSelectedUploadExamSlug] = useState(slug);
   const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
   const [bookmarkedFileIds, setBookmarkedFileIds] = useState<Set<string>>(loadBookmarkedFileIds);
   const [upvoteCounts, setUpvoteCounts] = useState<Record<string, number>>(loadFileUpvoteCounts);
   const [upvotedFileIds, setUpvotedFileIds] = useState<Set<string>>(loadUpvotedFileIds);
 
-  const displayFiles = useMemo(() => studyFiles ?? [], [studyFiles]);
+  const uploadExamOptions = useMemo(() => {
+    const options = examOptions ?? [];
+    if (!exam || options.some((option) => option.slug === exam.slug)) {
+      return options;
+    }
+    return [exam, ...options];
+  }, [exam, examOptions]);
+
+  const selectedUploadExam = useMemo(
+    () =>
+      uploadExamOptions.find((option) => option.slug === selectedUploadExamSlug) ??
+      null,
+    [selectedUploadExamSlug, uploadExamOptions],
+  );
+
+  const displayFiles = useMemo(
+    () => (studyFiles ?? []).filter((file) => file.examSlug === slug),
+    [slug, studyFiles],
+  );
 
   const filteredFiles = useMemo(() => {
     const normalized = fileSearch.trim().toLowerCase();
@@ -102,16 +123,28 @@ export default function ExamLandingPage() {
         return;
       }
 
+      if (!selectedUploadExam) {
+        setNotice("Choose an exam tag before uploading.");
+        window.setTimeout(() => setNotice(""), 2500);
+        return;
+      }
+
       if (processingRef.current) return;
       processingRef.current = true;
       setIsProcessing(true);
 
       try {
-        await processPdfUploads(supported, { append: true, addedBy: "You" });
+        await processPdfUploads(supported, {
+          append: true,
+          addedBy: "You",
+          examSlug: selectedUploadExam.slug,
+          examName: selectedUploadExam.name,
+        });
+        setIsUploadTagPickerOpen(false);
         setNotice(
           supported.length === 1
-            ? `${supported[0].name} uploaded`
-            : `${supported.length} files uploaded`,
+            ? `${supported[0].name} uploaded to ${selectedUploadExam.name}`
+            : `${supported.length} files uploaded to ${selectedUploadExam.name}`,
         );
       } catch (error) {
         setNotice(
@@ -123,7 +156,7 @@ export default function ExamLandingPage() {
         window.setTimeout(() => setNotice(""), 2500);
       }
     },
-    [],
+    [selectedUploadExam],
   );
 
   const handleFileChange = useCallback(
@@ -194,6 +227,16 @@ export default function ExamLandingPage() {
   }
 
   function handleAddFilesClick() {
+    setSelectedUploadExamSlug((current) => current || currentExam.slug);
+    setIsUploadTagPickerOpen(true);
+  }
+
+  function handleChooseTaggedFiles() {
+    if (!selectedUploadExam) {
+      setNotice("Choose an exam tag before uploading.");
+      window.setTimeout(() => setNotice(""), 2500);
+      return;
+    }
     fileInputRef.current?.click();
   }
 
@@ -337,6 +380,50 @@ export default function ExamLandingPage() {
             </button>
           </div>
 
+          {isUploadTagPickerOpen ? (
+            <div className="mx-auto mt-4 max-w-md rounded-2xl border border-gray-200 bg-white p-3 text-left shadow-sm">
+              <label
+                className="text-xs font-bold uppercase tracking-wide text-gray-400"
+                htmlFor="exam-upload-tag"
+              >
+                Exam tag
+              </label>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <select
+                  className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 outline-none transition focus:border-gray-400"
+                  id="exam-upload-tag"
+                  onChange={(event) =>
+                    setSelectedUploadExamSlug(event.target.value)
+                  }
+                  value={selectedUploadExamSlug}
+                >
+                  <option value="">Select an exam</option>
+                  {uploadExamOptions.map((option) => (
+                    <option key={option.slug} value={option.slug}>
+                      {option.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!selectedUploadExam || isProcessing}
+                  onClick={handleChooseTaggedFiles}
+                  type="button"
+                >
+                  {isProcessing ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="size-3.5" aria-hidden />
+                  )}
+                  Choose files
+                </button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                Files only appear on pages that match their selected exam tag.
+              </p>
+            </div>
+          ) : null}
+
           {notice ? (
             <p className="mt-3 text-center text-xs font-bold text-emerald-700">
               {notice}
@@ -405,14 +492,22 @@ export default function ExamLandingPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-2xl bg-white px-4 py-12 text-center shadow-sm">
-              <Upload className="mx-auto size-10 text-gray-300" aria-hidden />
-              <p className="mt-3 text-sm font-bold text-gray-700">No files uploaded yet</p>
-              <p className="mt-1 text-sm text-gray-500">
-                Upload study materials to extract questions and start studying.
+            <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_55%,#ecfeff_100%)] px-6 py-12 text-center shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+              <div
+                className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#0f172a,#0891b2,#10b981)]"
+                aria-hidden
+              />
+              <div className="mx-auto grid size-14 place-items-center rounded-2xl border border-cyan-100 bg-white text-cyan-700 shadow-sm">
+                <Upload className="size-7" strokeWidth={1.8} aria-hidden />
+              </div>
+              <p className="mt-5 text-base font-black tracking-tight text-gray-900">
+                No {currentExam.name} files yet
+              </p>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-gray-500">
+                Upload study materials tagged to this exam to extract questions and start studying.
               </p>
               <button
-                className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-gray-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-gray-950 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isProcessing}
                 onClick={handleAddFilesClick}
                 type="button"

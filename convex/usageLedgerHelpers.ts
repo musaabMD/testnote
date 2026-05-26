@@ -18,19 +18,54 @@ function assertUsageSecret(secret: string) {
 async function getOrCreateUserByClerkId(
   ctx: MutationCtx,
   clerkUserId: string,
+  email?: string | null,
 ): Promise<Doc<"users">> {
   const existing = await ctx.db
     .query("users")
     .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
-    .unique();
+    .first();
 
-  if (existing) return existing;
+  const normalizedEmail = normalizeEmail(email);
+
+  if (existing) {
+    const patch = buildIdentityPatch(existing, clerkUserId, normalizedEmail);
+    if (patch) await ctx.db.patch(existing._id, patch);
+    return existing;
+  }
+
+  const legacyByExternalId = await ctx.db
+    .query("users")
+    .withIndex("by_external_id", (q) => q.eq("externalId", clerkUserId))
+    .first();
+
+  if (legacyByExternalId) {
+    const patch = buildIdentityPatch(legacyByExternalId, clerkUserId, normalizedEmail);
+    if (patch) await ctx.db.patch(legacyByExternalId._id, patch);
+    return legacyByExternalId;
+  }
+
+  if (normalizedEmail) {
+    const emailMatches = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .collect();
+    const existingByEmail = emailMatches
+      .filter((user) => !user.clerkUserId || !user.clerkUserId.startsWith("anon:"))
+      .sort(compareUserCompleteness)[0];
+
+    if (existingByEmail) {
+      const patch = buildIdentityPatch(existingByEmail, clerkUserId, normalizedEmail);
+      if (patch) await ctx.db.patch(existingByEmail._id, patch);
+      return existingByEmail;
+    }
+  }
 
   const now = Date.now();
   const limits = getPlanLimits("free");
   const userId = await ctx.db.insert("users", {
     clerkUserId,
     externalId: clerkUserId,
+    email: normalizedEmail ?? undefined,
     plan: "free",
     billingStatus: "none",
     monthlyAiBudgetUsd: limits.monthlyAiBudgetUsd,
@@ -58,6 +93,51 @@ async function getUserByClerkId(ctx: QueryCtx, clerkUserId: string) {
     .query("users")
     .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
     .unique();
+}
+
+function normalizeEmail(email: string | null | undefined) {
+  const value = email?.trim().toLowerCase();
+  return value || undefined;
+}
+
+function buildIdentityPatch(
+  user: Doc<"users">,
+  clerkUserId: string,
+  email?: string,
+): Partial<Doc<"users">> | null {
+  const patch: Partial<Doc<"users">> = {
+    updatedAt: Date.now(),
+  };
+  let changed = false;
+
+  if (user.clerkUserId !== clerkUserId) {
+    patch.clerkUserId = clerkUserId;
+    changed = true;
+  }
+  if (user.externalId !== clerkUserId) {
+    patch.externalId = clerkUserId;
+    changed = true;
+  }
+  if (email && user.email !== email) {
+    patch.email = email;
+    changed = true;
+  }
+
+  return changed ? patch : null;
+}
+
+function compareUserCompleteness(a: Doc<"users">, b: Doc<"users">) {
+  return userCompletenessScore(b) - userCompletenessScore(a);
+}
+
+function userCompletenessScore(user: Doc<"users">) {
+  return (
+    (user.clerkUserId ? 8 : 0) +
+    (user.email ? 4 : 0) +
+    (user.billingStatus === "active" ? 4 : 0) +
+    (user.plan && user.plan !== "free" ? 2 : 0) +
+    (user.createdAt ? 1 : 0)
+  );
 }
 
 async function getOrCreateUsagePeriod(ctx: MutationCtx | QueryCtx, userId: Id<"users">) {

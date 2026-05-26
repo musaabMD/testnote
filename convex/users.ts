@@ -4,6 +4,7 @@ import { getCurrentPeriodBounds, getPlanLimits, normalizeAppPlan } from "./planL
 import {
   creditsUsedFromUsage,
   getEffectiveUserLimits,
+  getOrCreateUserByClerkId,
   getUserByClerkId,
 } from "./usageLedgerHelpers";
 
@@ -100,50 +101,21 @@ export const upsertCurrent = mutation({
       throw new Error("Not authenticated.");
     }
 
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", identity.subject))
-      .unique();
-
     const now = Date.now();
+    const user = await getOrCreateUserByClerkId(ctx, identity.subject, identity.email);
     const patch = {
       externalId: identity.subject,
       tokenIdentifier: identity.tokenIdentifier,
       clerkUserId: identity.subject,
       email: identity.email,
       name: identity.name,
+      dailyQuestionGoal: args.dailyQuestionGoal ?? user.dailyQuestionGoal ?? 20,
+      streak: user.streak ?? 0,
       updatedAt: now,
-      ...(args.dailyQuestionGoal === undefined
-        ? {}
-        : { dailyQuestionGoal: args.dailyQuestionGoal }),
     };
 
-    if (existing) {
-      await ctx.db.patch(existing._id, patch);
-      return existing._id;
-    }
-
-    const limits = getPlanLimits("free");
-
-    return await ctx.db.insert("users", {
-      ...patch,
-      dailyQuestionGoal: args.dailyQuestionGoal ?? 20,
-      streak: 0,
-      plan: "free",
-      billingStatus: "none",
-      monthlyAiBudgetUsd: limits.monthlyAiBudgetUsd,
-      monthlyPageLimit: limits.monthlyPageLimit,
-      monthlyUploadLimit: limits.monthlyUploadLimit,
-      monthlyFileLimit: limits.monthlyFileLimit,
-      monthlyChatLimit: limits.monthlyChatLimit,
-      activeJobLimit: limits.activeJobLimit,
-      activeExtractionLimit: limits.activeExtractionLimit,
-      maxPagesPerFile: limits.maxPagesPerFile,
-      maxFileSizeBytes: limits.maxFileSizeBytes,
-      creditsRemaining: limits.monthlyCredits,
-      monthlyCredits: limits.monthlyCredits,
-      createdAt: now,
-    });
+    await ctx.db.patch(user._id, patch);
+    return user._id;
   },
 });
 

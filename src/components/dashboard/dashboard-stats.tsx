@@ -26,6 +26,8 @@ const planLabel = {
   school: "School",
 } as const;
 
+const CONVEX_AUTH_TIMEOUT_MS = 8000;
+
 type UsageDashboard = {
   plan: string;
   planLabel: string;
@@ -112,9 +114,15 @@ class DashboardStatsBoundary extends Component<
 function DashboardStatsInner({ files }: DashboardStatsProps) {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const [mounted, setMounted] = useState(false);
+  const [authWaitExpired, setAuthWaitExpired] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [panel, setPanel] = useState<"usage" | "streak" | "score" | null>(null);
-  const currentUser = useQuery(api.users.current);
+  const convexAuthTimedOut = authLoading && authWaitExpired;
+  const usageUnavailable = convexAuthTimedOut || (!authLoading && !isAuthenticated);
+  const currentUser = useQuery(
+    api.users.current,
+    usageUnavailable ? "skip" : {},
+  );
   const usage = useMemo(
     () => buildUsageDashboard(currentUser),
     [currentUser],
@@ -122,13 +130,22 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
   const upsertCurrent = useMutation(api.users.upsertCurrent);
 
   useEffect(() => {
-    setMounted(true);
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
-    if (!mounted || !isAuthenticated || authLoading) return;
+    if (!authLoading) return;
+    const timeout = window.setTimeout(() => {
+      setAuthWaitExpired(true);
+    }, CONVEX_AUTH_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [authLoading]);
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated || authLoading || convexAuthTimedOut) return;
     void upsertCurrent({}).catch(() => {});
-  }, [authLoading, isAuthenticated, mounted, upsertCurrent]);
+  }, [authLoading, convexAuthTimedOut, isAuthenticated, mounted, upsertCurrent]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -143,14 +160,14 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
     };
   }, [mounted]);
 
-  const localStreak = useMemo(
-    () => (mounted ? computeStudyStreak() : 0),
-    [files, mounted, refreshKey],
-  );
-  const score = useMemo(
-    () => (mounted ? computeOverallScore(files) : 0),
-    [files, mounted, refreshKey],
-  );
+  const localStreak = useMemo(() => {
+    void refreshKey;
+    return mounted ? computeStudyStreak() : 0;
+  }, [mounted, refreshKey]);
+  const score = useMemo(() => {
+    void refreshKey;
+    return mounted ? computeOverallScore(files) : 0;
+  }, [files, mounted, refreshKey]);
   const streak = mounted ? Math.max(localStreak, usage?.streak ?? 0) : 0;
   const creditsRemaining = mounted ? (usage?.creditsRemaining ?? 0) : 0;
 
@@ -193,6 +210,7 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
       {panel === "usage" ? (
         <UsagePanel
           usage={usage}
+          unavailable={usageUnavailable}
           onClose={() => setPanel(null)}
         />
       ) : null}
@@ -226,7 +244,8 @@ function PanelShell({
   const [portalReady, setPortalReady] = useState(false);
 
   useEffect(() => {
-    setPortalReady(true);
+    const timeout = window.setTimeout(() => setPortalReady(true), 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   if (!portalReady) return null;
@@ -259,6 +278,7 @@ function PanelShell({
 
 function UsagePanel({
   usage,
+  unavailable,
   onClose,
 }: {
   usage:
@@ -278,8 +298,22 @@ function UsagePanel({
       }
     | null
     | undefined;
+  unavailable: boolean;
   onClose: () => void;
 }) {
+  if (unavailable) {
+    return (
+      <PanelShell title="Usage" onClose={onClose}>
+        <p className="text-sm text-slate-500">
+          Usage is unavailable because account sync is not ready.
+        </p>
+        <p className="text-xs leading-5 text-slate-400">
+          Check the Clerk and Convex auth environment variables, then refresh.
+        </p>
+      </PanelShell>
+    );
+  }
+
   if (!usage) {
     return (
       <PanelShell title="Usage" onClose={onClose}>

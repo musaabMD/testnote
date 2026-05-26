@@ -1,4 +1,4 @@
-import { isAdminClerkUserId } from "@/lib/admin-access.server";
+import { isAdminUser } from "@/lib/admin-access.server";
 import { isQuotaEnforcementEnabled, getUsageLedgerSecret } from "@/lib/convex-usage-client.server";
 
 export type ConvexPlan = "free" | "starter" | "pro" | "school";
@@ -35,13 +35,15 @@ const PLAN_CHECKS: PlanCheck[] = [
 
 export async function syncClerkBillingPlanToConvex(args: {
   clerkUserId: string;
+  email?: string | null;
   hasPlan: (planSlug: string) => boolean;
 }): Promise<void> {
   if (!isQuotaEnforcementEnabled()) return;
 
-  if (isAdminClerkUserId(args.clerkUserId)) {
+  if (isAdminUser({ clerkUserId: args.clerkUserId, email: args.email })) {
     await pushPlanToConvex({
       clerkUserId: args.clerkUserId,
+      email: args.email,
       plan: "pro",
       billingStatus: "active",
     });
@@ -53,6 +55,7 @@ export async function syncClerkBillingPlanToConvex(args: {
 
   await pushPlanToConvex({
     clerkUserId: args.clerkUserId,
+    email: args.email,
     plan,
     billingStatus,
   });
@@ -65,7 +68,7 @@ export async function syncClerkBillingFromWebhook(args: {
 }): Promise<void> {
   if (!isQuotaEnforcementEnabled()) return;
 
-  if (isAdminClerkUserId(args.clerkUserId)) {
+  if (isAdminUser({ clerkUserId: args.clerkUserId })) {
     await pushPlanToConvex({
       clerkUserId: args.clerkUserId,
       plan: "pro",
@@ -79,6 +82,7 @@ export async function syncClerkBillingFromWebhook(args: {
 
 async function pushPlanToConvex(args: {
   clerkUserId: string;
+  email?: string | null;
   plan: ConvexPlan;
   billingStatus: BillingStatus;
 }) {
@@ -94,6 +98,7 @@ async function pushPlanToConvex(args: {
     await client.mutation(api.usageLedger.setUserPlanByClerkId, {
       secret,
       clerkUserId: args.clerkUserId,
+      email: args.email ?? undefined,
       plan: args.plan,
       billingStatus: args.billingStatus,
     });

@@ -10,6 +10,7 @@ import {
 
 const libDir = path.join(import.meta.dirname, "..");
 const appDir = path.join(import.meta.dirname, "../../app");
+const convexDir = path.join(import.meta.dirname, "../../../convex");
 
 describe("trackedOpenRouter records usage fields", () => {
   it("commits usage with userId, model, tokens, cost, and feature", () => {
@@ -111,6 +112,19 @@ describe("quota exceeded avoids OpenRouter", () => {
     const src = readFileSync(path.join(libDir, "tracked-openrouter.server.ts"), "utf8");
     assert.match(src, /if \(!result\.allowed\)/);
     assert.match(src, /allowed: false, reason: result\.reason/);
+  });
+
+  it("admin preflight bypasses quota checks before plan limits", () => {
+    const src = readFileSync(path.join(convexDir, "usageLedger.ts"), "utf8");
+    const adminBypass = src.indexOf("if (admin)");
+    const budgetCheck = src.indexOf("projectedCost > limits.monthlyAiBudgetUsd");
+    const fileSizeCheck = src.indexOf("args.fileSizeBytes && args.fileSizeBytes > limits.maxFileSizeBytes");
+    const monthlyUploadCheck = src.indexOf("period.filesUploaded >= limits.monthlyFileLimit");
+
+    assert.ok(adminBypass > -1);
+    assert.ok(budgetCheck > adminBypass);
+    assert.ok(fileSizeCheck > adminBypass);
+    assert.ok(monthlyUploadCheck > adminBypass);
   });
 });
 

@@ -386,6 +386,48 @@ describe("documentation and backlog", () => {
     assert.match(dropzone, /const startProcessing = \(\) => \{[\s\S]{0,160}lastBatchRef\.current = ""/);
   });
 
+  it("asks signed-out users to sign up before homepage upload extraction", () => {
+    const dropzone = readFileSync(
+      path.join(root, "src/components/pdf/pdf-dropzone.tsx"),
+      "utf8",
+    );
+
+    assert.match(dropzone, /useClerk/);
+    assert.match(dropzone, /openSignUp/);
+    assert.match(dropzone, /const requestSignUpForUpload = useCallback/);
+    assert.match(dropzone, /if \(requestSignUpForUpload\(\)\) return/);
+    assert.match(dropzone, /fallbackRedirectUrl: DASHBOARD_REDIRECT/);
+    assert.doesNotMatch(
+      dropzone,
+      /const addFiles = useCallback\([\s\S]{0,180}setFiles/,
+      "addFiles must not queue files before the sign-up gate runs",
+    );
+  });
+
+  it("keeps upload progress persistent and avoids raw non-ascii multipart filenames", () => {
+    const uploadClient = readFileSync(
+      path.join(root, "src/lib/process-pdf-upload.ts"),
+      "utf8",
+    );
+    const providers = readFileSync(
+      path.join(root, "src/components/providers.tsx"),
+      "utf8",
+    );
+    const mcqsRoute = readFileSync(
+      path.join(root, "src/app/api/pdf/mcqs/route.ts"),
+      "utf8",
+    );
+
+    assert.match(uploadClient, /safeMultipartFileName/);
+    assert.match(uploadClient, /formData\.append\("file", file, safeMultipartFileName\(file\)\)/);
+    assert.match(uploadClient, /formData\.append\("fileName", file\.name\)/);
+    assert.match(uploadClient, /upsertUploadProgressRecord/);
+    assert.match(uploadClient, /resumePersistedExtractionJob/);
+    assert.match(providers, /<UploadProgressToast \/>/);
+    assert.match(mcqsRoute, /displayFileName/);
+    assert.match(mcqsRoute, /fileName: displayFileName/);
+  });
+
   it("keeps Stripe webhook to Convex plan sync wiring", () => {
     const http = readFileSync(path.join(root, "convex/http.ts"), "utf8");
     const billing = readFileSync(path.join(root, "convex/billing.ts"), "utf8");

@@ -15,12 +15,10 @@ export default function ExamsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [librarySlugs, setLibrarySlugs] = useState<string[]>(loadExamLibrary);
   const [notice, setNotice] = useState("");
-  const { examsWithFiles, categories, isLoading } = useExamCatalog({
-    withFilesOnly: true,
-  });
+  const { exams, categories, isLoading } = useExamCatalog();
 
   const filteredExams = useMemo(() => {
-    const source = examsWithFiles ?? [];
+    const source = exams ?? [];
     const normalized = searchQuery.trim().toLowerCase();
     let filtered = source;
 
@@ -48,7 +46,7 @@ export default function ExamsPage() {
       if (aInLibrary !== bInLibrary) return bInLibrary - aInLibrary;
       return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
     });
-  }, [examsWithFiles, librarySlugs, searchQuery, selectedCategory]);
+  }, [exams, librarySlugs, searchQuery, selectedCategory]);
 
   function handleToggleLibrary(slug: string, name: string, event: React.MouseEvent) {
     event.preventDefault();
@@ -59,7 +57,7 @@ export default function ExamsPage() {
     window.setTimeout(() => setNotice(""), 2500);
   }
 
-  const availableCount = examsWithFiles?.length ?? 0;
+  const availableCount = exams?.length ?? 0;
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -71,7 +69,7 @@ export default function ExamsPage() {
             Exams
           </h1>
           <p className="text-base text-gray-400">
-            Browse exam catalogs, see available files, and save exams to this browser.
+            Browse exam catalogs, save exams to this browser, and upload study files.
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
             Adding an exam to your catalog library is anonymous and local. Sign in only
@@ -122,15 +120,6 @@ export default function ExamsPage() {
             />
           ))}
         </div>
-
-        <p className="mb-3 text-xs font-semibold text-gray-400">
-          {isLoading
-            ? "Loading exams…"
-            : `${filteredExams.length} of ${availableCount} exam${availableCount === 1 ? "" : "s"}`}
-          {!isLoading && librarySlugs.length
-            ? ` · ${librarySlugs.length} in your library`
-            : ""}
-        </p>
 
         {notice ? (
           <p className="mb-3 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-700">

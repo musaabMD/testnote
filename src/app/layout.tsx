@@ -3,7 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono, Sora, DM_Sans } from "next/font/google";
 import { AppProviders } from "@/components/providers";
-import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
+import { APP_NAME } from "@/lib/site-branding";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -43,29 +43,17 @@ export const metadata: Metadata = {
     "flashcards",
     "exam practice",
   ],
-  icons: {
-    icon: [{ url: APP_LOGO_URL, type: "image/png" }],
-    apple: [{ url: APP_LOGO_URL, type: "image/png" }],
-    shortcut: [APP_LOGO_URL],
-  },
   openGraph: {
     title: "DrNote.co",
     description: "Convert PDFs and notes into interactive learning materials.",
     url: "/",
     siteName: APP_NAME,
     type: "website",
-    images: [
-      {
-        url: APP_LOGO_URL,
-        alt: `${APP_NAME} logo`,
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "DrNote.co",
     description: "Convert PDFs and notes into interactive learning materials.",
-    images: [APP_LOGO_URL],
   },
 };
 

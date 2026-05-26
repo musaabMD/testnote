@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { QuotaLimitBanner } from "@/components/quota-limit-banner";
-import { useUser } from "@clerk/nextjs";
+import { useClerk, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -55,6 +55,9 @@ type Phase = {
   bg: string;
   ring: string;
 };
+
+const DASHBOARD_REDIRECT = "/dashboard";
+const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 const PHASES: Phase[] = [
   {
@@ -188,7 +191,8 @@ function pastedTextFileName(text: string) {
 
 export function PdfDropzone() {
   const router = useRouter();
-  const { user } = useUser();
+  const { openSignUp } = useClerk();
+  const { user, isLoaded, isSignedIn } = useUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const [screen, setScreen] = useState<Screen>("drop");
@@ -204,10 +208,35 @@ export function PdfDropzone() {
   const [extractedCount, setExtractedCount] = useState(0);
   const processingRef = useRef(false);
   const lastBatchRef = useRef("");
+  const pendingAuthFilesRef = useRef<File[]>([]);
+
+  const requestSignUpForUpload = useCallback((pendingFiles?: File[]) => {
+    if (!clerkEnabled || isSignedIn) return false;
+
+    if (pendingFiles?.length) {
+      pendingAuthFilesRef.current = pendingFiles;
+    }
+
+    if (!isLoaded) {
+      setError("Preparing sign up. Try again in a moment.");
+      return true;
+    }
+
+    setError("");
+    openSignUp({
+      fallbackRedirectUrl: DASHBOARD_REDIRECT,
+      signInFallbackRedirectUrl: DASHBOARD_REDIRECT,
+    });
+    return true;
+  }, [isLoaded, isSignedIn, openSignUp]);
 
   const addFiles = useCallback((incoming: FileList | File[] | null) => {
     if (!incoming) return;
     const incomingFiles = Array.from(incoming);
+    if (!incomingFiles.length) return;
+
+    if (requestSignUpForUpload(incomingFiles)) return;
+
     const unsupported = incomingFiles.find((file) => getUnsupportedUploadReason(file));
     if (unsupported) {
       setError(getUnsupportedUploadReason(unsupported) ?? "Unsupported file type.");
@@ -233,7 +262,14 @@ export function PdfDropzone() {
       const unique = next.filter((item) => !seen.has(`${item.name}-${item.size}`));
       return [...prev, ...unique];
     });
-  }, []);
+  }, [requestSignUpForUpload]);
+
+  useEffect(() => {
+    if (!isSignedIn || !pendingAuthFilesRef.current.length) return;
+    const pendingFiles = pendingAuthFilesRef.current;
+    pendingAuthFilesRef.current = [];
+    addFiles(pendingFiles);
+  }, [addFiles, isSignedIn]);
 
   const pendingFilesRef = useRef<QueuedFile[]>([]);
 
@@ -280,10 +316,11 @@ export function PdfDropzone() {
     const file = new File([blob], pastedTextFileName(text), {
       type: "text/plain",
     });
+    if (requestSignUpForUpload()) return;
     addFiles([file]);
     setManualText("");
     setTextOpen(false);
-  }, [addFiles, manualText]);
+  }, [addFiles, manualText, requestSignUpForUpload]);
 
   const handlePaste = useCallback(
     (event: ClipboardEvent) => {
@@ -329,23 +366,36 @@ export function PdfDropzone() {
   }, [handlePaste]);
 
   const processFiles = useCallback(async (selected: QueuedFile[]) => {
+    let sentToDashboard = false;
+    const sendToDashboard = () => {
+      if (sentToDashboard) return;
+      sentToDashboard = true;
+      router.push("/dashboard");
+    };
+
     try {
       const queue = await processPdfUploads(
         selected.map((item) => item.file),
-        { append: true, addedBy: getUserDisplayName(user) },
+        {
+          append: true,
+          addedBy: getUserDisplayName(user),
+          onJobStarted: sendToDashboard,
+        },
       );
       const totalQuestions = queue.reduce(
         (count, item) => count + item.result.mcqs.length,
         0,
       );
+      if (sentToDashboard) return;
       setExtractedCount(totalQuestions);
       setProgress(100);
       setScreen("done");
 
       window.setTimeout(() => {
-        router.push("/dashboard");
+        sendToDashboard();
       }, 900);
     } catch (uploadError) {
+      if (sentToDashboard) return;
       processingRef.current = false;
       if (timerRef.current) window.clearTimeout(timerRef.current);
       setScreen("drop");
@@ -375,6 +425,7 @@ export function PdfDropzone() {
 
   const startProcessing = () => {
     if (files.length === 0 || processingRef.current) return;
+    if (requestSignUpForUpload()) return;
     lastBatchRef.current = "";
     processingRef.current = true;
     setError("");
@@ -514,7 +565,10 @@ export function PdfDropzone() {
             >
               <button
                 className="inline-flex items-center gap-2 rounded-full border border-[#d1d1d1] bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#bdbdbd] hover:bg-[#f5f5f5]"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  if (requestSignUpForUpload()) return;
+                  fileInputRef.current?.click();
+                }}
                 type="button"
               >
                 <Upload className="size-4 text-slate-600" />
@@ -522,7 +576,10 @@ export function PdfDropzone() {
               </button>
               <button
                 className="inline-flex items-center gap-2 rounded-full border border-[#d1d1d1] bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#bdbdbd] hover:bg-[#f5f5f5]"
-                onClick={() => setTextOpen((value) => !value)}
+                onClick={() => {
+                  if (requestSignUpForUpload()) return;
+                  setTextOpen((value) => !value);
+                }}
                 type="button"
               >
                 <ClipboardPaste className="size-4 text-slate-600" />

@@ -34,8 +34,8 @@ export function useExamCatalog(options?: {
   );
 
   const categories = useMemo(
-    () => (availableExams ? examCategoriesFrom(availableExams) : []),
-    [availableExams],
+    () => (exams ? examCategoriesFrom(exams) : []),
+    [exams],
   );
 
   return {

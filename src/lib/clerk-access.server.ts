@@ -1,5 +1,5 @@
-import { auth } from "@clerk/nextjs/server";
-import { isAdminClerkUserId } from "@/lib/admin-access.server";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { isAdminUser } from "@/lib/admin-access.server";
 import {
   CLERK_FEATURES,
   getClerkFeatureSlug,
@@ -12,23 +12,28 @@ export type ClerkAccess = {
   hasFeature: (feature: string) => boolean;
   hasPlan: (planSlug: string) => boolean;
   hasAnyPaidPlan: () => boolean;
+  hasAdminAccess: () => boolean;
   hasPaidAccess: () => boolean;
 };
 
 export async function getClerkAccess(): Promise<ClerkAccess> {
   try {
     const session = await auth();
+    const user = session.userId ? await currentUser().catch(() => null) : null;
+    const email = user?.primaryEmailAddress?.emailAddress ?? null;
     const hasFeature = (feature: string) => session.has({ feature });
     const hasPlan = (planSlug: string) => session.has({ plan: planSlug });
     const paidPlanSlugs = getConfiguredClerkPlanSlugs();
+    const hasAdminAccess = () => isAdminUser({ clerkUserId: session.userId, email });
 
     return {
       userId: session.userId ?? null,
       hasFeature,
       hasPlan,
       hasAnyPaidPlan: () => paidPlanSlugs.some((slug) => hasPlan(slug)),
+      hasAdminAccess,
       hasPaidAccess: () =>
-        isAdminClerkUserId(session.userId) ||
+        hasAdminAccess() ||
         hasFeature(getClerkFeatureSlug("paidAccess")) ||
         paidPlanSlugs.some((slug) => hasPlan(slug)),
     };
@@ -38,6 +43,7 @@ export async function getClerkAccess(): Promise<ClerkAccess> {
       hasFeature: () => false,
       hasPlan: () => false,
       hasAnyPaidPlan: () => false,
+      hasAdminAccess: () => false,
       hasPaidAccess: () => false,
     };
   }
@@ -52,7 +58,7 @@ export async function requireClerkFeature(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!access.hasFeature(getClerkFeatureSlug(featureKey))) {
+  if (!access.hasAdminAccess() && !access.hasFeature(getClerkFeatureSlug(featureKey))) {
     return Response.json(
       { error: "Upgrade required to use this feature." },
       { status: 403 },

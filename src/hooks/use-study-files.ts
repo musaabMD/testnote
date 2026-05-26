@@ -2,7 +2,10 @@
 
 import { api } from "../../convex/_generated/api";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
-import { loadFiles } from "@/lib/pdf-view-storage";
+import {
+  loadFiles,
+  PDF_FILE_QUEUE_UPDATED_EVENT,
+} from "@/lib/pdf-view-storage";
 import {
   mergeConvexRecordsWithLocal,
   type ConvexExtractionRecord,
@@ -12,25 +15,51 @@ import { convex } from "@/lib/convex-client";
 import { useConvexAuth, useQuery } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+const CONVEX_AUTH_TIMEOUT_MS = 8000;
+
 export function useStudyFiles(): {
   files: PdfFileQueueItem[] | undefined;
   isLoading: boolean;
 } {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const records = useQuery(api.studyFiles.listMyExtractions);
-  const [localFiles, setLocalFiles] = useState<PdfFileQueueItem[]>([]);
+  const [localFiles, setLocalFiles] = useState<PdfFileQueueItem[]>(loadFiles);
+  const [authWaitExpired, setAuthWaitExpired] = useState(false);
+  const convexAuthTimedOut = authLoading && authWaitExpired;
+  const queryDisabled = convexAuthTimedOut || (!authLoading && !isAuthenticated);
+  const records = useQuery(
+    api.studyFiles.listMyExtractions,
+    queryDisabled ? "skip" : {},
+  );
 
   useEffect(() => {
-    setLocalFiles(loadFiles());
+    if (!authLoading) return;
+    const timeout = window.setTimeout(() => {
+      setAuthWaitExpired(true);
+    }, CONVEX_AUTH_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [authLoading]);
+
+  useEffect(() => {
+    function handleFileQueueUpdated() {
+      setLocalFiles(loadFiles());
+    }
+    window.addEventListener(PDF_FILE_QUEUE_UPDATED_EVENT, handleFileQueueUpdated);
+    return () => {
+      window.removeEventListener(
+        PDF_FILE_QUEUE_UPDATED_EVENT,
+        handleFileQueueUpdated,
+      );
+    };
   }, []);
 
   const files = useMemo(() => {
+    if (queryDisabled) return localFiles;
     if (records === undefined) return undefined;
     return mergeConvexRecordsWithLocal(
       records as ConvexExtractionRecord[],
       localFiles,
     );
-  }, [localFiles, records]);
+  }, [localFiles, queryDisabled, records]);
 
   const syncedFileIdsRef = useRef<string>("");
   useEffect(() => {
@@ -46,7 +75,7 @@ export function useStudyFiles(): {
 
   return {
     files,
-    isLoading: records === undefined,
+    isLoading: files === undefined,
   };
 }
 

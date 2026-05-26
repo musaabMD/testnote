@@ -2,7 +2,14 @@
 
 import { Badge } from "@/components/ui/badge";
 import { CATEGORY_COLORS, type Exam } from "@/lib/exams";
-import { BookOpen, Check, ChevronRight, Library } from "lucide-react";
+import {
+  BookOpen,
+  Check,
+  ChevronRight,
+  FileText,
+  Library,
+  SearchX,
+} from "lucide-react";
 import Link from "next/link";
 
 type ExamCardProps = {
@@ -51,6 +58,12 @@ export function ExamCard({ exam, inLibrary, onToggleLibrary }: ExamCardProps) {
             <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-gray-500 sm:line-clamp-1">
               {exam.description}
             </p>
+            <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-gray-400">
+              <FileText className="size-3" aria-hidden />
+              {exam.fileCount > 0
+                ? `${exam.fileCount} file${exam.fileCount === 1 ? "" : "s"}`
+                : "No shared files yet"}
+            </p>
           </div>
 
           <ChevronRight
@@ -87,19 +100,23 @@ export function ExamLibraryEmptyState({
 }: {
   hasAvailableExams?: boolean;
 }) {
+  const Icon = hasAvailableExams ? SearchX : BookOpen;
+  const title = hasAvailableExams ? "No matching exams" : "Catalogs are on the way";
+  const description = hasAvailableExams
+    ? "Try a different name, country, or category."
+    : "New exam catalogs and study files will appear here as soon as they are ready.";
+
   return (
-    <div className="rounded-2xl border-2 border-gray-300 bg-white px-4 py-12 text-center shadow-sm">
-      <BookOpen className="mx-auto size-10 text-gray-300" aria-hidden />
-      <p className="mt-3 text-sm font-bold text-gray-500">
-        {hasAvailableExams
-          ? "No exams match your search"
-          : "No exams with study files yet"}
+    <div className="rounded-2xl border border-gray-200 bg-gray-50/80 px-6 py-12 text-center shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+      <div className="mx-auto grid size-14 place-items-center rounded-2xl border border-gray-200 bg-white text-gray-500 shadow-sm">
+        <Icon className="size-7" strokeWidth={1.8} aria-hidden />
+      </div>
+      <p className="mt-5 text-base font-black tracking-tight text-gray-900">
+        {title}
       </p>
-      {!hasAvailableExams ? (
-        <p className="mt-1 text-sm text-gray-500">
-          Check back soon — new exam materials are added regularly.
-        </p>
-      ) : null}
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-gray-500">
+        {description}
+      </p>
     </div>
   );
 }

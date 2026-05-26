@@ -10,7 +10,7 @@ import {
   estimateOcrCostUsd,
   reserveCostUsd,
 } from "@/lib/plan-limits.server";
-import { getQuotaSubject } from "@/lib/request-user.server";
+import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import {
   preflightTrackedAiCall,
   trackedOpenRouterFetch,
@@ -57,11 +57,13 @@ export async function POST(request: Request) {
   }
 
   const bbox = normalizeBbox(body.bbox);
-  const clerkUserId = await getQuotaSubject(request);
+  const quotaSubject = await getQuotaSubjectDetails(request);
+  const clerkUserId = quotaSubject.clerkUserId;
   const model = getOpenRouterModel("OPENROUTER_OCR_MODEL");
 
   const preflight = await preflightTrackedAiCall({
     clerkUserId,
+    email: quotaSubject.email,
     feature: "ocr",
     estimatedCostUsd: reserveCostUsd(estimateOcrCostUsd()),
     model,
@@ -76,6 +78,7 @@ export async function POST(request: Request) {
 
   const tracking = {
     clerkUserId,
+    email: quotaSubject.email,
     feature: "ocr" as const,
     reservationId: preflight.reservationId,
   };

@@ -1,6 +1,7 @@
 "use client";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { UploadProgressToast } from "@/components/upload-progress-toast";
 import { convex } from "@/lib/convex-client";
 import { useAuth } from "@clerk/nextjs";
 import { ConvexProvider } from "convex/react";
@@ -14,14 +15,20 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   if (!clerkEnabled) {
     return (
       <ConvexProvider client={convex}>
-        <TooltipProvider>{children}</TooltipProvider>
+        <TooltipProvider>
+          {children}
+          <UploadProgressToast />
+        </TooltipProvider>
       </ConvexProvider>
     );
   }
 
   return (
     <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      <TooltipProvider>{children}</TooltipProvider>
+      <TooltipProvider>
+        {children}
+        <UploadProgressToast />
+      </TooltipProvider>
     </ConvexProviderWithClerk>
   );
 }

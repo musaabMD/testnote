@@ -18,6 +18,8 @@ export type LocalFileOverlay = {
   pageCount?: number;
   addedAt?: number;
   addedBy?: string;
+  examSlug?: string;
+  examName?: string;
   resourceKind?: PdfFileQueueItem["resourceKind"];
 };
 
@@ -45,6 +47,8 @@ export function convexRecordToQueueItem(
     pageCount: overlay?.pageCount ?? record.pageCount,
     addedAt: overlay?.addedAt ?? record.createdAt,
     addedBy: overlay?.addedBy ?? "You",
+    examSlug: overlay?.examSlug,
+    examName: overlay?.examName,
     resourceKind: overlay?.resourceKind,
     sourceChunks: record.sourceChunks,
   };
@@ -61,6 +65,8 @@ export function buildLocalOverlayMap(
       pageCount: file.pageCount,
       addedAt: file.addedAt,
       addedBy: file.addedBy,
+      examSlug: file.examSlug,
+      examName: file.examName,
       resourceKind: file.resourceKind,
     });
   }
