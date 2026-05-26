@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
+import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
-export const alt = "DrNote AI study workspace";
+export const alt = `${APP_NAME} — AI study workspace`;
 
 export const size = {
   width: 1200,
@@ -29,26 +30,20 @@ export default function Image() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "20px",
-            fontSize: 38,
+            gap: "24px",
+            fontSize: 48,
             fontWeight: 800,
           }}
         >
-          <div
-            style={{
-              width: 68,
-              height: 68,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 18,
-              background: "#0f172a",
-              color: "white",
-            }}
-          >
-            D
-          </div>
-          DrNote
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt={`${APP_NAME} logo`}
+            height={88}
+            src={APP_LOGO_URL}
+            style={{ borderRadius: 20 }}
+            width={88}
+          />
+          {APP_NAME}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
           <div style={{ maxWidth: 900, fontSize: 76, fontWeight: 900, lineHeight: 1 }}>

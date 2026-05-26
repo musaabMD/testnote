@@ -1,3 +1,5 @@
+import { touchStudyActivity } from "./study-activity";
+
 export type QuizProgressRecord = {
   fileId: string;
   index: number;
@@ -27,6 +29,7 @@ export function saveQuizProgress(fileId: string, index: number) {
     const parsed = raw ? (JSON.parse(raw) as Record<string, QuizProgressRecord>) : {};
     parsed[fileId] = { fileId, index, updatedAt: Date.now() };
     window.localStorage.setItem(PDF_QUIZ_PROGRESS_KEY, JSON.stringify(parsed));
+    touchStudyActivity();
   } catch {
     // ignore quota / private browsing
   }

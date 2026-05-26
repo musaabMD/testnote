@@ -15,6 +15,10 @@ export type ExtractionJobRecord = {
   extractionKey?: string;
   ownerId?: string;
   fileHash: string;
+  fileName?: string;
+  mimeType?: string;
+  extractionMode?: string;
+  extractionModel?: string;
   clerkUserId?: string;
   status: ExtractionJobStatus;
   progressPagesProcessed: number;
@@ -68,6 +72,10 @@ async function syncJobToConvex(job: ExtractionJobRecord): Promise<void> {
     extractionKey: job.extractionKey,
     ownerId: job.ownerId,
     fileHash: job.fileHash,
+    fileName: job.fileName,
+    mimeType: job.mimeType,
+    extractionMode: job.extractionMode,
+    extractionModel: job.extractionModel,
     clerkUserId: job.clerkUserId,
     status: job.status,
     progressPagesProcessed: job.progressPagesProcessed,
@@ -93,6 +101,10 @@ async function getConvexJob(jobId: string): Promise<ExtractionJobRecord | null> 
     extractionKey: row.extractionKey,
     ownerId: row.ownerId,
     fileHash: row.fileHash,
+    fileName: row.fileName,
+    mimeType: row.mimeType,
+    extractionMode: row.extractionMode,
+    extractionModel: row.extractionModel,
     clerkUserId: row.clerkUserId,
     status: row.status,
     progressPagesProcessed: row.progressPagesProcessed,
@@ -131,6 +143,10 @@ export async function createExtractionJob(args: {
   extractionKey?: string;
   ownerId?: string;
   fileHash: string;
+  fileName?: string;
+  mimeType?: string;
+  extractionMode?: string;
+  extractionModel?: string;
   totalPages: number;
   clerkUserId?: string;
 }): Promise<ExtractionJobRecord> {
@@ -142,6 +158,10 @@ export async function createExtractionJob(args: {
     extractionKey: args.extractionKey,
     ownerId: args.ownerId,
     fileHash: args.fileHash,
+    fileName: args.fileName,
+    mimeType: args.mimeType,
+    extractionMode: args.extractionMode,
+    extractionModel: args.extractionModel,
     clerkUserId: args.clerkUserId,
     status: "queued",
     progressPagesProcessed: 0,

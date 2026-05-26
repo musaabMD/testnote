@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentPeriodBounds,
   getPlanLimits,
+  creditsUsedFromUsage,
   type PlanLimits,
 } from "./planLimits";
 
@@ -41,8 +42,8 @@ async function getOrCreateUserByClerkId(
     activeExtractionLimit: limits.activeExtractionLimit,
     maxPagesPerFile: limits.maxPagesPerFile,
     maxFileSizeBytes: limits.maxFileSizeBytes,
-    creditsRemaining: 0,
-    monthlyCredits: 0,
+    creditsRemaining: limits.monthlyCredits,
+    monthlyCredits: limits.monthlyCredits,
     createdAt: now,
     updatedAt: now,
   });
@@ -50,6 +51,13 @@ async function getOrCreateUserByClerkId(
   const created = await ctx.db.get(userId);
   if (!created) throw new Error("Failed to create user.");
   return created;
+}
+
+async function getUserByClerkId(ctx: QueryCtx, clerkUserId: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerk_user_id", (q) => q.eq("clerkUserId", clerkUserId))
+    .unique();
 }
 
 async function getOrCreateUsagePeriod(ctx: MutationCtx | QueryCtx, userId: Id<"users">) {
@@ -111,9 +119,13 @@ function getEffectiveUserLimits(user: Doc<"users">): PlanLimits {
   };
 }
 
+function hasPaidPlan(user: Doc<"users">): boolean {
+  return user.plan !== "free" && user.billingStatus === "active";
+}
+
 function isBillingActive(status: string | undefined): boolean {
-  // Free tier uses "none". Paid subscriptions must be "active" — no free trials.
-  return status === "active" || status === "none";
+  // Only paid subscriptions with active billing may use AI. No free tier.
+  return status === "active";
 }
 
 async function sumActiveReservations(ctx: MutationCtx, userId: Id<"users">) {
@@ -150,9 +162,12 @@ async function countTodayChatMessages(ctx: MutationCtx, userId: Id<"users">) {
 
 export {
   assertUsageSecret,
+  creditsUsedFromUsage,
   getEffectiveUserLimits,
   getOrCreateUserByClerkId,
   getOrCreateUsagePeriod,
+  getUserByClerkId,
+  hasPaidPlan,
   isBillingActive,
   sumActiveReservations,
   countTodayChatMessages,

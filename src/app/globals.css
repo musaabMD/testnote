@@ -52,6 +52,7 @@
 body {
   background: #ffffff;
   font-family: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  overflow-x: hidden;
 }
 
 @keyframes fadeSlideIn {

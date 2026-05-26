@@ -107,7 +107,7 @@ export function StudyFileCard({
       }`}
     >
       <div
-        className="flex cursor-pointer select-none items-center gap-4 px-5 py-4"
+        className="flex cursor-pointer select-none items-center gap-2 px-3 py-3.5 sm:gap-4 sm:px-5 sm:py-4"
         onClick={() => onToggleExpanded()}
       >
         <button
@@ -137,7 +137,7 @@ export function StudyFileCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2" onClick={(event) => event.stopPropagation()}>
           <button
             aria-label={
               locked
@@ -207,7 +207,7 @@ export function StudyFileCard({
 
       {isExpanded ? (
         <div
-          className={`border-t-2 px-5 pb-5 pt-4 ${
+          className={`border-t-2 px-3 pb-4 pt-3 sm:px-5 sm:pb-5 sm:pt-4 ${
             locked ? "border-gray-100 bg-gray-50" : "border-violet-100"
           }`}
         >

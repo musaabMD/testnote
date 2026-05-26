@@ -55,6 +55,58 @@ export function isOptionLine(text: string, label?: OptionLabel): boolean {
   return /^[\(\[]?[A-Ea-e][\.\):\-]\s*\S/.test(normalized);
 }
 
+export function hasQuestionIntent(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  if (!normalized) return false;
+
+  return (
+    /\?/.test(normalized) ||
+    /\b(?:which of the following|most appropriate|next step|best diagnosis|diagnosis|management|risk factor|what is|what are|how should)\b/i.test(
+      normalized,
+    ) ||
+    /(?:أي مما يلي|ما هو|ما هي|الأنسب|الأصح|الأكثر احتمالاً|الأكثر شيوعاً)/.test(
+      normalized,
+    )
+  );
+}
+
+export function hasAnswerKeySignal(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  return /^(?:answer|correct answer|his answer|ans\.?)\s*[:.\-]\s*[A-E]/i.test(
+    normalized,
+  ) || /(?:الإجابة|الإجابة الصحيحة)\s*[:：]?\s*/.test(normalized);
+}
+
+export function countQuestionCandidateSignals(text: string): number {
+  const lines = text
+    .split(/\r?\n|(?<=\.)\s+(?=\d{1,4}[\.\):\-]\s+)/)
+    .map((line) => normalizeLineForParsing(line))
+    .filter(Boolean);
+  const lineRecords = lines.map((line) => ({ text: line }));
+
+  let numberedStarts = 0;
+  let optionSequenceStarts = 0;
+  let intentSignals = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (
+      parseLeadingQuestionNumber(line) !== null ||
+      parseStandaloneQuestionNumberLine(line) !== null
+    ) {
+      numberedStarts += 1;
+    }
+    if (isOptionLine(line, "A") && hasMcqOptionSequence(lineRecords, index)) {
+      optionSequenceStarts += 1;
+    }
+    if (hasQuestionIntent(line) && (hasAnswerKeySignal(line) || line.includes("?"))) {
+      intentSignals += 1;
+    }
+  }
+
+  return Math.max(numberedStarts, optionSequenceStarts, intentSignals);
+}
+
 export function hasMcqOptionSequence(lines: Array<{ text: string }>, startIndex: number): boolean {
   const labels = new Set<OptionLabel>();
 

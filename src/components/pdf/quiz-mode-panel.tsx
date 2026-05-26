@@ -493,7 +493,7 @@ export function QuizModePanel({
               <TooltipTrigger
                 render={
                   <button
-                    className="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    className="hidden size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 sm:grid"
                     onClick={() => onShowQuestionSource?.(question)}
                     type="button"
                     aria-label="View source"
@@ -514,7 +514,7 @@ export function QuizModePanel({
               <TooltipTrigger
                 render={
                   <button
-                    className="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 disabled:opacity-50"
+                    className="hidden size-9 place-items-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200 disabled:opacity-50 sm:grid"
                     disabled={fixingGrammar}
                     onClick={() => void applyGrammarFixRef.current()}
                     type="button"
@@ -530,7 +530,7 @@ export function QuizModePanel({
             </Tooltip>
           ) : null}
           <button
-            className="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+            className="hidden size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 sm:grid"
             onClick={() => setFeedbackOpen(true)}
             type="button"
             aria-label="Report issue"

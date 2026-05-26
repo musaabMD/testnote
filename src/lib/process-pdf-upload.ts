@@ -25,6 +25,7 @@ type ExtractionApiResponse = PdfMcqResult & {
   sourceChunks?: SourceChunk[];
   error?: string;
   hint?: string;
+  failureReason?: string;
 };
 
 type ExtractionJobStartResponse = {
@@ -35,6 +36,7 @@ type ExtractionJobStartResponse = {
   pageCount?: number;
   error?: string;
   hint?: string;
+  failureReason?: string;
 };
 
 type ExtractionJobPollResponse = {

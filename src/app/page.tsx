@@ -56,9 +56,9 @@ export default function HomePage() {
     <main className="min-h-screen bg-white text-slate-950">
       <PublicHeader />
 
-      <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[860px] flex-col items-center justify-center px-5 py-16 text-center sm:px-6">
-        <h1 className="max-w-2xl font-[family-name:var(--font-sora)] text-5xl font-black leading-none tracking-tight text-slate-950 sm:text-6xl">
-          <span className="block whitespace-nowrap">Upload file. Get</span>
+      <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[860px] flex-col items-center justify-center px-5 py-10 text-center sm:px-6 sm:py-16">
+        <h1 className="max-w-2xl font-[family-name:var(--font-sora)] text-[2.1rem] font-black leading-[1.1] tracking-tight text-slate-950 sm:text-5xl sm:leading-none md:text-6xl">
+          <span className="block">Upload file. Get</span>
           <HeroRotatingLine />
         </h1>
 

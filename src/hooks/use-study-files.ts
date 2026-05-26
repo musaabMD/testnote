@@ -9,15 +9,20 @@ import {
 } from "@/lib/study-files";
 import { syncMissingSourceFilesFromConvex } from "@/lib/resolve-source-file";
 import { convex } from "@/lib/convex-client";
-import { useQuery } from "convex/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useConvexAuth, useQuery } from "convex/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export function useStudyFiles(): {
   files: PdfFileQueueItem[] | undefined;
   isLoading: boolean;
 } {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const records = useQuery(api.studyFiles.listMyExtractions);
-  const localFiles = loadFiles();
+  const [localFiles, setLocalFiles] = useState<PdfFileQueueItem[]>([]);
+
+  useEffect(() => {
+    setLocalFiles(loadFiles());
+  }, []);
 
   const files = useMemo(() => {
     if (records === undefined) return undefined;
@@ -29,7 +34,7 @@ export function useStudyFiles(): {
 
   const syncedFileIdsRef = useRef<string>("");
   useEffect(() => {
-    if (!files?.length) return;
+    if (!files?.length || !isAuthenticated || authLoading) return;
     const key = files.map((file) => file.id).join(",");
     if (syncedFileIdsRef.current === key) return;
     syncedFileIdsRef.current = key;
@@ -37,7 +42,7 @@ export function useStudyFiles(): {
       files.map((file) => file.id),
       { convex },
     );
-  }, [files]);
+  }, [authLoading, files, isAuthenticated]);
 
   return {
     files,

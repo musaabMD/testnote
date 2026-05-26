@@ -5,7 +5,7 @@ import {
   getTimeSalutation,
   type LearningQuote,
 } from "@/lib/dashboard-greeting";
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 
 type DashboardGreetingProps = {
   userName: string;
@@ -14,25 +14,27 @@ type DashboardGreetingProps = {
 const DEFAULT_GREETING = { salutation: "Hello", emoji: "👋" };
 
 export function DashboardGreeting({ userName }: DashboardGreetingProps) {
-  const { greeting, quote } = useMemo(() => {
-    if (typeof window === "undefined") {
-      return {
-        greeting: DEFAULT_GREETING,
-        quote: null as LearningQuote | null,
-      };
-    }
-    return {
-      greeting: getTimeSalutation(new Date().getHours()),
-      quote: getRandomLearningQuote(),
-    };
+  const [greeting, setGreeting] = useState(DEFAULT_GREETING);
+  const [quote, setQuote] = useState<LearningQuote | null>(null);
+
+  useEffect(() => {
+    setGreeting(getTimeSalutation(new Date().getHours()));
+    setQuote(getRandomLearningQuote());
   }, []);
 
   return (
     <section className="mb-8 text-center">
-      <p aria-hidden className="m-0 text-4xl leading-none sm:text-5xl">
+      <p
+        aria-hidden
+        className="m-0 text-4xl leading-none sm:text-5xl"
+        suppressHydrationWarning
+      >
         {greeting.emoji}
       </p>
-      <h2 className="m-0 mt-2 text-[28px] font-black tracking-tight text-slate-900 sm:text-[32px]">
+      <h2
+        className="m-0 mt-2 text-[28px] font-black tracking-tight text-slate-900 sm:text-[32px]"
+        suppressHydrationWarning
+      >
         {greeting.salutation}, {userName}!
       </h2>
       <blockquote className="mx-auto mt-5 max-w-xl rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-center sm:max-w-2xl sm:px-6 sm:py-5">

@@ -12,6 +12,7 @@ export type AiFeature = "extract" | "ask" | "tutor" | "grammar" | "ocr";
 export type PlanLimits = {
   plan: AppPlan;
   monthlyAiBudgetUsd: number;
+  monthlyCredits: number;
   monthlyPageLimit: number;
   monthlyUploadLimit: number;
   monthlyFileLimit: number;
@@ -26,10 +27,29 @@ export type PlanLimits = {
   warnAiBudgetUsd: number;
 };
 
+export const CREDIT_COST = {
+  page: 10,
+  chat: 5,
+  file: 100,
+} as const;
+
+export function creditsUsedFromUsage(args: {
+  pagesProcessed: number;
+  chatMessages: number;
+  filesUploaded: number;
+}) {
+  return (
+    args.pagesProcessed * CREDIT_COST.page +
+    args.chatMessages * CREDIT_COST.chat +
+    args.filesUploaded * CREDIT_COST.file
+  );
+}
+
 const PLAN_LIMITS: Record<AppPlan, PlanLimits> = {
   free: {
     plan: "free",
-    monthlyAiBudgetUsd: 0.05,
+    monthlyAiBudgetUsd: 0,
+    monthlyCredits: 1000,
     monthlyPageLimit: 100,
     monthlyUploadLimit: 3,
     monthlyFileLimit: 3,
@@ -41,11 +61,12 @@ const PLAN_LIMITS: Record<AppPlan, PlanLimits> = {
     maxActiveExtractionJobs: 1,
     activeJobLimit: 1,
     activeExtractionLimit: 1,
-    warnAiBudgetUsd: 0.04,
+    warnAiBudgetUsd: 0,
   },
   starter: {
     plan: "starter",
     monthlyAiBudgetUsd: 2,
+    monthlyCredits: 5000,
     monthlyPageLimit: 2000,
     monthlyUploadLimit: 20,
     monthlyFileLimit: 20,
@@ -62,6 +83,7 @@ const PLAN_LIMITS: Record<AppPlan, PlanLimits> = {
   pro: {
     plan: "pro",
     monthlyAiBudgetUsd: 8,
+    monthlyCredits: 15_000,
     monthlyPageLimit: 10_000,
     monthlyUploadLimit: 100,
     monthlyFileLimit: 100,
@@ -78,6 +100,7 @@ const PLAN_LIMITS: Record<AppPlan, PlanLimits> = {
   school: {
     plan: "school",
     monthlyAiBudgetUsd: 50,
+    monthlyCredits: 50_000,
     monthlyPageLimit: 100_000,
     monthlyUploadLimit: 500,
     monthlyFileLimit: 500,

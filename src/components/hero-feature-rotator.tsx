@@ -23,11 +23,7 @@ const ROTATING_FEATURES: Array<{
   { label: "quiz mode", icon: CheckSquare, colorClass: "text-indigo-600" },
   { label: "timed quiz", icon: Timer, colorClass: "text-orange-600" },
   { label: "exam mode", icon: Clock, colorClass: "text-amber-600" },
-  {
-    label: "performance by subject",
-    icon: PieChart,
-    colorClass: "text-fuchsia-600",
-  },
+  { label: "analytics", icon: PieChart, colorClass: "text-fuchsia-600" },
   { label: "question review", icon: BookMarked, colorClass: "text-lime-600" },
   { label: "full analysis", icon: BarChart3, colorClass: "text-cyan-600" },
   { label: "session history", icon: History, colorClass: "text-violet-600" },
@@ -71,7 +67,7 @@ export function HeroRotatingLine() {
 
   return (
     <span
-      className={`inline-flex max-w-full items-center justify-center gap-2 whitespace-nowrap capitalize ${feature.colorClass}`}
+      className={`inline-flex max-w-full items-center justify-center gap-2 overflow-hidden capitalize ${feature.colorClass}`}
       aria-live="polite"
       aria-atomic="true"
       aria-label={`Get ${feature.label}`}

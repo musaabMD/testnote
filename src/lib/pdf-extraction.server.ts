@@ -17,6 +17,10 @@ import {
   type DistributedExtractionClaim,
 } from "@/lib/distributed-extraction-lock.server";
 import {
+  upsertExtractionPage,
+  upsertExtractionPageAudit,
+} from "@/lib/extraction-page-store.server";
+import {
   buildExtractionCacheKey,
   extractionCacheKeyId,
   isFullFileMultimodalFallbackEnabled,
@@ -31,6 +35,7 @@ import {
   persistExtractionCache,
   type CachedExtractionPayload,
 } from "@/lib/extraction-cache.server";
+import { sendExtractionJobEmail } from "@/lib/extraction-email.server";
 import {
   buildFailureResponse,
   logExtractionAttempt,
@@ -45,7 +50,12 @@ import { validateMcqExtractionResponse } from "@/lib/mcq-result-validation.serve
 import { type PdfMcq, type PdfMcqResult } from "@/lib/pdf-mcqs";
 import { extractSourceChunksFromPdf } from "@/lib/pdfjs-server.server";
 import { mapChunkIdsToMcqRegions } from "@/lib/pdf-source-chunks.server";
-import { normalizeLineForParsing } from "@/lib/mcq-line-patterns";
+import {
+  countQuestionCandidateSignals,
+  hasQuestionIntent,
+  normalizeLineForParsing,
+  parseLeadingQuestionNumber,
+} from "@/lib/mcq-line-patterns";
 import {
   hasSelectableText,
   probePdfSelectableText,
@@ -122,6 +132,7 @@ type ExtractionRunContext = {
   fileHash: string;
   fileName: string;
   pageCount: number;
+  clerkUserId: string;
   model: string;
   startedAt: number;
   attemptNumber: number;
@@ -286,6 +297,12 @@ async function failExtraction(args: {
     failureReason: args.reason,
     error: payload.error,
   });
+  void sendExtractionJobEmail({
+    clerkUserId: args.ctx.clerkUserId,
+    fileName: args.ctx.fileName,
+    status: "failed",
+    error: payload.error,
+  });
 
   logExtractionAttempt({
     fileHash: args.ctx.fileHash,
@@ -412,6 +429,7 @@ async function runPdfMcqExtractionCore(args: {
     fileHash,
     fileName,
     pageCount,
+    clerkUserId,
     model,
     startedAt,
     attemptNumber: 1,
@@ -444,6 +462,10 @@ async function runPdfMcqExtractionCore(args: {
   const distributedClaim = await claimDistributedExtraction({
     extractionKey,
     fileHash,
+    fileName,
+    mimeType,
+    extractionMode,
+    extractionModel: model,
     clerkUserId,
     totalPages: pageCount,
     jobId: args.jobId,
@@ -491,6 +513,10 @@ async function runPdfMcqExtractionCore(args: {
     extractionKey: distributedClaim.enabled ? extractionKey : undefined,
     ownerId: distributedClaim.ownerId,
     fileHash,
+    fileName,
+    mimeType,
+    extractionMode,
+    extractionModel: model,
     totalPages: pageCount,
     clerkUserId,
   });
@@ -531,6 +557,13 @@ async function runPdfMcqExtractionCore(args: {
       probe,
     });
     runCtx.sourceChunksCount = sourceChunks.length;
+    await recordPageScanProgress({
+      jobId: job.id,
+      fileHash,
+      clerkUserId,
+      pageCount,
+      sourceChunks,
+    });
   }
 
   const batchCount = sourceChunks.length
@@ -630,6 +663,14 @@ async function runPdfMcqExtractionCore(args: {
       mapChunkIdsToMcqRegions(chunkExtraction.mcqs, sourceChunks);
 
       const normalized = normalizeResult(chunkExtraction);
+      await recordPageExtractionAudits({
+        jobId: job.id,
+        fileHash,
+        pageCount,
+        sourceChunks,
+        result: normalized,
+        retryCount: runCtx.failedBatchIndexes?.length ?? 0,
+      });
       const finalized = await finalizeExtraction({
         apiKey,
         cacheKey,
@@ -678,6 +719,15 @@ async function runPdfMcqExtractionCore(args: {
 
   if ("failureReason" in fullFileResult) return fullFileResult;
 
+  await recordPageExtractionAudits({
+    jobId: job.id,
+    fileHash,
+    pageCount,
+    sourceChunks: fullFileResult.sourceChunks,
+    result: fullFileResult,
+    retryCount: runCtx.failedBatchIndexes?.length ?? 0,
+  });
+
   const finalized = await finalizeExtraction({
     apiKey,
     cacheKey,
@@ -694,6 +744,125 @@ async function runPdfMcqExtractionCore(args: {
   });
 
   return { ...finalized, jobId: job.id };
+}
+
+async function recordPageScanProgress(args: {
+  jobId: string;
+  fileHash: string;
+  clerkUserId: string;
+  pageCount: number;
+  sourceChunks: SourceChunk[];
+}) {
+  const chunksByPage = groupChunksByPage(args.sourceChunks);
+
+  for (let pageIndex = 0; pageIndex < args.pageCount; pageIndex += 1) {
+    const pageNumber = pageIndex + 1;
+    const chunks = chunksByPage.get(pageNumber) ?? [];
+    const candidateQuestionCount = chunks.filter((chunk) =>
+      chunkLooksLikeQuestion(chunk.text),
+    ).length;
+
+    await upsertExtractionPage({
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      clerkUserId: args.clerkUserId,
+      pageIndex,
+      text: chunks.map((chunk) => chunk.text).join("\n\n").slice(0, 80_000),
+      mode: candidateQuestionCount > 0 ? "existing_questions" : "noise",
+      candidateQuestionCount,
+      status: candidateQuestionCount > 0 ? "processing" : "done",
+    });
+  }
+}
+
+async function recordPageExtractionAudits(args: {
+  jobId: string;
+  fileHash: string;
+  pageCount: number;
+  sourceChunks: SourceChunk[];
+  result: PdfMcqResult;
+  retryCount: number;
+}) {
+  const chunksByPage = groupChunksByPage(args.sourceChunks);
+  const mcqsByPage = groupMcqsByPage(args.result.mcqs, args.sourceChunks);
+
+  for (let pageIndex = 0; pageIndex < args.pageCount; pageIndex += 1) {
+    const pageNumber = pageIndex + 1;
+    const chunks = chunksByPage.get(pageNumber) ?? [];
+    const mcqs = mcqsByPage.get(pageNumber) ?? [];
+    const candidateQuestionCount = chunks.filter((chunk) =>
+      chunkLooksLikeQuestion(chunk.text),
+    ).length;
+    const needsReviewCount = mcqs.filter((mcq) => mcq.status === "needs_review").length;
+    const incompleteCount = mcqs.filter((mcq) => {
+      const optionCount = mcq.options?.length ?? mcq.choices?.length ?? 0;
+      return optionCount < 2 || !(mcq.correctAnswer ?? mcq.answer ?? "").trim();
+    }).length;
+    const status =
+      needsReviewCount > 0 || mcqs.length < candidateQuestionCount
+        ? "partial"
+        : "passed";
+    const warnings: string[] = [];
+    if (mcqs.length < candidateQuestionCount) {
+      warnings.push("extracted_less_than_candidate_count");
+    }
+    if (needsReviewCount > 0) warnings.push("needs_review_items_present");
+
+    await upsertExtractionPageAudit({
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      pageIndex,
+      mode: candidateQuestionCount > 0 ? "existing_questions" : "noise",
+      candidateQuestionCount,
+      extractedQuestionCount: mcqs.length,
+      generatedQuestionCount: 0,
+      incompleteCount,
+      needsReviewCount,
+      retryCount: args.retryCount,
+      status,
+      warnings,
+    });
+
+    await upsertExtractionPage({
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      pageIndex,
+      mode: candidateQuestionCount > 0 ? "existing_questions" : "noise",
+      candidateQuestionCount,
+      status: status === "partial" ? "needs_review" : "done",
+    });
+  }
+}
+
+function groupChunksByPage(chunks: SourceChunk[]): Map<number, SourceChunk[]> {
+  const grouped = new Map<number, SourceChunk[]>();
+  for (const chunk of chunks) {
+    const list = grouped.get(chunk.pageNumber) ?? [];
+    list.push(chunk);
+    grouped.set(chunk.pageNumber, list);
+  }
+  return grouped;
+}
+
+function groupMcqsByPage(
+  mcqs: PdfMcq[],
+  sourceChunks: SourceChunk[],
+): Map<number, PdfMcq[]> {
+  const chunkPage = new Map(sourceChunks.map((chunk) => [chunk.id, chunk.pageNumber]));
+  const grouped = new Map<number, PdfMcq[]>();
+
+  for (const mcq of mcqs) {
+    const pageNumber =
+      mcq.sourcePage ??
+      mcq.sourceChunkIds?.map((id) => chunkPage.get(id)).find((page) => page);
+    if (!pageNumber) continue;
+
+    const list = grouped.get(pageNumber) ?? [];
+    list.push(mcq);
+    grouped.set(pageNumber, list);
+  }
+
+  return grouped;
 }
 
 async function returnCachedExtraction(args: {
@@ -908,6 +1077,15 @@ async function finalizeExtraction(args: {
   await updateExtractionJob(args.jobId, {
     status: "ready",
     progressPagesProcessed: args.pageCount,
+  });
+  void sendExtractionJobEmail({
+    clerkUserId: args.clerkUserId,
+    fileName: args.fileName,
+    status: result.mcqs.some((mcq) => mcq.status === "needs_review")
+      ? "needs_review"
+      : "ready",
+    questionCount: result.mcqs.length,
+    needsReviewCount: result.mcqs.filter((mcq) => mcq.status === "needs_review").length,
   });
 
   if (args.reservationId) {
@@ -1294,28 +1472,12 @@ async function recoverMissingChunkQuestions(args: {
   current: PdfMcqResult;
   trackingCtx: TrackedOpenRouterContext;
 }): Promise<PdfMcqResult> {
-  const covered = new Set(
-    args.current.mcqs.flatMap((mcq) => mcq.sourceChunkIds ?? []).filter(Boolean),
-  );
-  const missing = args.chunks.filter((chunk) => !covered.has(chunk.id));
-  if (!missing.length) return args.current;
-
-  const fallbackMcqs = missing
-    .map((chunk, index) => buildMcqFromSourceChunk(chunk, args.current.mcqs.length + index))
-    .filter((mcq): mcq is PdfMcq => Boolean(mcq));
-
-  let recovered = fallbackMcqs.length
-    ? mergeBatchResults([args.current, { title: args.current.title, summary: args.current.summary, mcqs: fallbackMcqs }])
-    : args.current;
-
-  const stillCovered = new Set(
-    recovered.mcqs.flatMap((mcq) => mcq.sourceChunkIds ?? []).filter(Boolean),
-  );
-  const stillMissing = missing.filter((chunk) => !stillCovered.has(chunk.id));
-  if (!stillMissing.length) return recovered;
+  let recovered = repairMissingSourceChunkIds(args.current, args.chunks);
+  const missing = findUncoveredQuestionChunks(args.chunks, recovered);
+  if (!missing.length) return recovered;
 
   const recoveryResults: PdfMcqResult[] = [];
-  for (const batch of splitChunksIntoBatches(stillMissing)) {
+  for (const batch of splitChunksIntoBatches(missing)) {
     const result = await extractBatchWithSplitRetry({
       apiKey: args.apiKey,
       model: args.model,
@@ -1336,9 +1498,24 @@ async function recoverMissingChunkQuestions(args: {
     );
   }
 
+  const fallbackMcqs = findUncoveredQuestionChunks(args.chunks, recovered)
+    .map((chunk, index) => buildMcqFromSourceChunk(chunk, recovered.mcqs.length + index))
+    .filter((mcq): mcq is PdfMcq => Boolean(mcq));
+
+  if (fallbackMcqs.length) {
+    recovered = removeUngroundedDuplicates(recovered, fallbackMcqs);
+    recovered = repairMissingSourceChunkIds(
+      mergeBatchResults([
+        recovered,
+        { title: recovered.title, summary: recovered.summary, mcqs: fallbackMcqs },
+      ]),
+      args.chunks,
+    );
+  }
+
   if (
     process.env.NODE_ENV === "development" &&
-    recovered.mcqs.length < args.chunks.length
+    findUncoveredQuestionChunks(args.chunks, recovered).length > 0
   ) {
     console.warn(
       `[pdf-extraction] Extracted ${recovered.mcqs.length}/${args.chunks.length} chunk-backed questions after coverage repair.`,
@@ -1346,6 +1523,32 @@ async function recoverMissingChunkQuestions(args: {
   }
 
   return recovered;
+}
+
+function findUncoveredQuestionChunks(chunks: SourceChunk[], result: PdfMcqResult): SourceChunk[] {
+  const covered = new Set(
+    result.mcqs.flatMap((mcq) => mcq.sourceChunkIds ?? []).filter(Boolean),
+  );
+  return chunks.filter((chunk) => !covered.has(chunk.id) && chunkLooksLikeQuestion(chunk.text));
+}
+
+function removeUngroundedDuplicates(
+  result: PdfMcqResult,
+  groundedFallbacks: PdfMcq[],
+): PdfMcqResult {
+  const mcqs = result.mcqs.filter((mcq) => {
+    if (mcq.sourceChunkIds?.length) return true;
+    const text = normalizeForSimilarity(mcq.questionText ?? mcq.question ?? "");
+    if (!text) return true;
+    return !groundedFallbacks.some((fallback) => {
+      const fallbackText = normalizeForSimilarity(
+        [fallback.questionText, fallback.exactQuote].filter(Boolean).join(" "),
+      );
+      return tokenOverlapScore(text, fallbackText) >= 0.35;
+    });
+  });
+
+  return { ...result, mcqs };
 }
 
 function repairMissingSourceChunkIds(result: PdfMcqResult, chunks: SourceChunk[]): PdfMcqResult {
@@ -1387,9 +1590,9 @@ function findBestChunkForMcq(
 
 function buildMcqFromSourceChunk(chunk: SourceChunk, index: number): PdfMcq | null {
   const parts = splitTextByOptionLabels(chunk.text);
-  if (parts.options.length < 4) return null;
+  if (!chunkLooksLikeQuestion(chunk.text) || parts.options.length === 0) return null;
 
-  const questionText = formatQuestionText(parts.stem);
+  const questionText = formatQuestionText(extractFallbackQuestionStem(parts.stem));
   if (!questionText) return null;
 
   return {
@@ -1405,7 +1608,34 @@ function buildMcqFromSourceChunk(chunk: SourceChunk, index: number): PdfMcq | nu
     sourcePage: chunk.pageNumber,
     sourceRegion: chunk.region,
     exactQuote: chunk.text.slice(0, 180),
+    rawJson: {
+      generated: false,
+      sourceFallback: true,
+      reason: "model_coverage_repair",
+    },
+    status: "needs_review",
   };
+}
+
+function extractFallbackQuestionStem(stem: string): string {
+  const normalized = normalizeLineForParsing(stem);
+  const questionSentences = Array.from(
+    normalized.matchAll(/(?:^|[.!?]\s+)([^.!?]*\?)/g),
+  ).map((match) => match[1]?.trim()).filter(Boolean);
+  const candidate = questionSentences.at(-1);
+  return (candidate ?? normalized).replace(/^-+\s*/, "").trim();
+}
+
+function chunkLooksLikeQuestion(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  if (countQuestionCandidateSignals(normalized) > 0) return true;
+  if (splitTextByOptionLabels(normalized).options.length > 0 && normalized.includes("?")) {
+    return true;
+  }
+  if (hasQuestionIntent(normalized)) {
+    return splitTextByOptionLabels(normalized).options.length > 0;
+  }
+  return false;
 }
 
 function splitTextByOptionLabels(text: string): {
@@ -1432,10 +1662,7 @@ function splitTextByOptionLabels(text: string): {
 }
 
 function parseChunkQuestionNumber(text: string): number | undefined {
-  const match = normalizeLineForParsing(text).match(/^(?:Q\.?\s*)?(\d{1,4})\b/i);
-  if (!match?.[1]) return undefined;
-  const value = Number.parseInt(match[1], 10);
-  return Number.isFinite(value) ? value : undefined;
+  return parseLeadingQuestionNumber(normalizeLineForParsing(text)) ?? undefined;
 }
 
 function parseCorrectAnswer(text: string): string | undefined {

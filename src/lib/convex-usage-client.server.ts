@@ -43,6 +43,7 @@ export async function preflightAiUsage(args: {
   fileSizeBytes?: number;
   jobId?: string;
   model?: string;
+  reserve?: boolean;
 }): Promise<PreflightResult> {
   if (!isQuotaEnforcementEnabled()) {
     return { allowed: true };
@@ -72,6 +73,7 @@ export async function preflightAiUsage(args: {
       fileSizeBytes: args.fileSizeBytes,
       jobId: args.jobId,
       model: args.model,
+      reserve: args.reserve,
     });
   } catch (error) {
     if (process.env.NODE_ENV === "development") {

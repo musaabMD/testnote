@@ -5,15 +5,12 @@ import { ChevronRight, Menu, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-
-const LOGO_URL =
-  "https://q648y7e0kt.ufs.sh/f/7bppoSdGjTuBsGmvNyR3mYU4jKNLJh5ZQuVOqsSP06Elv89c";
+import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
 const NAV_LINKS = [
   { label: "Exams", href: "/exams" },
   { label: "Features", href: "/features" },
   { label: "Pricing", href: "/pricing" },
-  { label: "Support", href: "/support" },
 ];
 
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
@@ -32,17 +29,17 @@ type HeaderActionsProps = {
 
 function Logo() {
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="DrNote">
+    <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label={APP_NAME}>
       <Image
-        alt="DrNote"
+        alt={APP_NAME}
         className="size-[34px] rounded-xl object-contain"
         height={34}
         unoptimized
-        src={LOGO_URL}
+        src={APP_LOGO_URL}
         width={34}
       />
       <span className="font-[family-name:var(--font-sora)] text-[19px] font-black tracking-tight text-slate-950">
-        DrNote
+        {APP_NAME}
       </span>
     </Link>
   );

@@ -29,6 +29,10 @@ export type DistributedExtractionClaim =
 export async function claimDistributedExtraction(args: {
   extractionKey: string;
   fileHash: string;
+  fileName?: string;
+  mimeType?: string;
+  extractionMode?: string;
+  extractionModel?: string;
   clerkUserId?: string;
   totalPages: number;
   jobId?: string;
@@ -48,6 +52,10 @@ export async function claimDistributedExtraction(args: {
     jobId,
     ownerId,
     fileHash: args.fileHash,
+    fileName: args.fileName,
+    mimeType: args.mimeType,
+    extractionMode: args.extractionMode,
+    extractionModel: args.extractionModel,
     clerkUserId: args.clerkUserId,
     totalPages: args.totalPages,
     staleAfterMs: getEnvMs("EXTRACTION_LOCK_STALE_AFTER_MS", 10 * 60 * 1000),

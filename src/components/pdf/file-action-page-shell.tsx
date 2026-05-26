@@ -7,8 +7,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
-const LOGO_URL =
-  "https://q648y7e0kt.ufs.sh/f/7bppoSdGjTuBsGmvNyR3mYU4jKNLJh5ZQuVOqsSP06Elv89c";
+import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
 type FileActionPageShellProps = {
   title: string;
@@ -55,10 +54,10 @@ function FileActionPageShellContent({
             aria-label="DrNote home"
           >
             <Image
-              alt="DrNote"
+              alt={APP_NAME}
               className="size-8 rounded-xl object-contain"
               height={32}
-              src={LOGO_URL}
+              src={APP_LOGO_URL}
               unoptimized
               width={32}
             />

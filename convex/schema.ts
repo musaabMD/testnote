@@ -12,6 +12,7 @@ export default defineSchema({
     stripeSubscriptionId: v.optional(v.string()),
     dailyQuestionGoal: v.optional(v.number()),
     streak: v.optional(v.number()),
+    lastStudyDay: v.optional(v.string()),
     plan: v.optional(
       v.union(
         v.literal("free"),
@@ -89,6 +90,9 @@ export default defineSchema({
     extractionMode: v.string(),
     extractionModel: v.string(),
     appExtractionVersion: v.string(),
+    promptVersion: v.optional(v.string()),
+    schemaVersion: v.optional(v.string()),
+    renderVersion: v.optional(v.string()),
     pageCount: v.number(),
     title: v.string(),
     summary: v.string(),
@@ -100,6 +104,9 @@ export default defineSchema({
     "extractionMode",
     "extractionModel",
     "appExtractionVersion",
+    "promptVersion",
+    "schemaVersion",
+    "renderVersion",
   ]),
 
   extractionJobs: defineTable({
@@ -107,6 +114,10 @@ export default defineSchema({
     extractionKey: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
     clerkUserId: v.optional(v.string()),
     status: v.union(
       v.literal("queued"),
@@ -174,6 +185,94 @@ export default defineSchema({
   })
     .index("by_question_id", ["questionId"])
     .index("by_file_id", ["fileId"]),
+
+  extractionPages: defineTable({
+    jobId: v.string(),
+    fileHash: v.string(),
+    clerkUserId: v.optional(v.string()),
+    pageIndex: v.number(),
+    previewR2Key: v.optional(v.string()),
+    imageBase64R2Key: v.optional(v.string()),
+    text: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    complexity: v.optional(
+      v.union(
+        v.literal("text_selectable"),
+        v.literal("normal_image"),
+        v.literal("dense_image"),
+        v.literal("noise"),
+      ),
+    ),
+    puCost: v.optional(v.number()),
+    mode: v.optional(
+      v.union(
+        v.literal("existing_questions"),
+        v.literal("study_content"),
+        v.literal("mixed"),
+        v.literal("noise"),
+      ),
+    ),
+    candidateQuestionCount: v.optional(v.number()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("done"),
+      v.literal("needs_review"),
+      v.literal("failed"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_job_page", ["jobId", "pageIndex"])
+    .index("by_file_hash", ["fileHash"]),
+
+  extractionPageAudits: defineTable({
+    jobId: v.string(),
+    fileHash: v.string(),
+    pageIndex: v.number(),
+    mode: v.optional(v.string()),
+    candidateQuestionCount: v.number(),
+    extractedQuestionCount: v.number(),
+    generatedQuestionCount: v.number(),
+    incompleteCount: v.number(),
+    needsReviewCount: v.number(),
+    retryCount: v.number(),
+    status: v.union(v.literal("passed"), v.literal("partial"), v.literal("failed")),
+    warnings: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_job_page", ["jobId", "pageIndex"])
+    .index("by_file_hash", ["fileHash"]),
+
+  extractionSourceBlocks: defineTable({
+    jobId: v.string(),
+    fileHash: v.string(),
+    pageIndex: v.number(),
+    subIndex: v.optional(v.number()),
+    blockType: v.union(
+      v.literal("question"),
+      v.literal("answer_key"),
+      v.literal("study_content"),
+      v.literal("noise"),
+    ),
+    text: v.string(),
+    bbox: v.optional(
+      v.object({
+        ymin: v.number(),
+        xmin: v.number(),
+        ymax: v.number(),
+        xmax: v.number(),
+      }),
+    ),
+    confidence: v.number(),
+    detectionMethod: v.union(v.literal("regex"), v.literal("ai")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_file_hash", ["fileHash"]),
 
   aiRequests: defineTable({
     userId: v.optional(v.id("users")),

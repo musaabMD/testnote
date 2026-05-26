@@ -1,3 +1,4 @@
+import { isAdminClerkUserId } from "@/lib/admin-access.server";
 import { isQuotaEnforcementEnabled, getUsageLedgerSecret } from "@/lib/convex-usage-client.server";
 
 export type ConvexPlan = "free" | "starter" | "pro" | "school";
@@ -38,6 +39,15 @@ export async function syncClerkBillingPlanToConvex(args: {
 }): Promise<void> {
   if (!isQuotaEnforcementEnabled()) return;
 
+  if (isAdminClerkUserId(args.clerkUserId)) {
+    await pushPlanToConvex({
+      clerkUserId: args.clerkUserId,
+      plan: "pro",
+      billingStatus: "active",
+    });
+    return;
+  }
+
   const plan = resolveClerkBillingPlan(args.hasPlan);
   const billingStatus: BillingStatus = plan === "free" ? "none" : "active";
 
@@ -54,6 +64,16 @@ export async function syncClerkBillingFromWebhook(args: {
   billingStatus: BillingStatus;
 }): Promise<void> {
   if (!isQuotaEnforcementEnabled()) return;
+
+  if (isAdminClerkUserId(args.clerkUserId)) {
+    await pushPlanToConvex({
+      clerkUserId: args.clerkUserId,
+      plan: "pro",
+      billingStatus: "active",
+    });
+    return;
+  }
+
   await pushPlanToConvex(args);
 }
 

@@ -78,6 +78,7 @@ export async function preflightTrackedAiCall(args: {
   jobId?: string;
   fileHash?: string;
   model?: string;
+  reserve?: boolean;
 }): Promise<{ allowed: boolean; reason?: string; reservationId?: string }> {
   const result = await preflightAiUsage(args);
   if (!result.allowed) {

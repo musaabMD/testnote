@@ -15,7 +15,7 @@ export type ClassifiedUsageError = {
 };
 
 const PLAN_QUOTA_PATTERN =
-  /monthly ai budget|monthly page limit|monthly upload limit|monthly chat limit|monthly file limit|daily chat limit|too many active extraction|file is too large|page count exceeds|usage quota exceeded|plan limit/i;
+  /monthly ai budget|monthly page limit|monthly upload limit|monthly chat limit|monthly file limit|daily chat limit|too many active extraction|file is too large|page count exceeds|usage quota exceeded|plan limit|paid plan is required/i;
 
 const BILLING_INACTIVE_PATTERN =
   /subscription inactive|update billing|past due|payment failed/i;
@@ -41,8 +41,6 @@ export function classifyUsageError(message: string): ClassifiedUsageError {
       message: normalized,
       primaryHref: "/pricing",
       primaryLabel: "Manage billing",
-      secondaryHref: "/support",
-      secondaryLabel: "Contact support",
     };
   }
 
@@ -53,8 +51,6 @@ export function classifyUsageError(message: string): ClassifiedUsageError {
       message: normalized,
       primaryHref: "/pricing",
       primaryLabel: "Upgrade plan",
-      secondaryHref: "/support",
-      secondaryLabel: "Contact support",
     };
   }
 

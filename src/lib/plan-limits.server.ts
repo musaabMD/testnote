@@ -32,6 +32,11 @@ export function estimateOcrCostUsd(): number {
   return 0.01;
 }
 
+/** Conservative batch estimate for upload-time quota checks (before chunk parsing). */
+export function estimateUploadExtractionBatchCount(pageCount: number): number {
+  return Math.max(1, pageCount);
+}
+
 export function getMaxUploadBytesForPlan(plan: string | undefined): number {
   switch (plan) {
     case "starter":

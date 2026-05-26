@@ -5,10 +5,17 @@ import { enforceApiRateLimit } from "@/lib/api-rate-limit.server";
 import { createExtractionJob, updateExtractionJob } from "@/lib/extraction-job-store.server";
 import { parseExtractionMode } from "@/lib/extraction-config";
 import { sha256FileBytes } from "@/lib/file-hash.server";
+import { getOpenRouterModel } from "@/lib/openrouter-client";
+import {
+  estimateExtractionCostUsd,
+  estimateUploadExtractionBatchCount,
+  reserveCostUsd,
+} from "@/lib/plan-limits.server";
 import { runPdfMcqExtraction } from "@/lib/pdf-extraction.server";
 import { getQuotaSubject } from "@/lib/request-user.server";
 import { getPdfPageCountForUpload } from "@/lib/pdfjs-server.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
+import { preflightTrackedAiCall } from "@/lib/tracked-openrouter.server";
 import {
   getUnsupportedUploadReason,
   inferUploadMimeType,
@@ -67,11 +74,46 @@ export async function POST(request: Request) {
   const extractionMode = parseExtractionMode(formData.get("extractionMode"));
   const pageCount = await getPageCountForUpload(file, arrayBuffer, mimeType);
   const clerkUserId = await getQuotaSubject(request);
+  const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
+  const estimatedCostUsd = reserveCostUsd(
+    estimateExtractionCostUsd({
+      pageCount,
+      batchCount: estimateUploadExtractionBatchCount(pageCount),
+      model,
+    }),
+  );
+
+  const preflight = await preflightTrackedAiCall({
+    clerkUserId,
+    feature: "extract",
+    estimatedCostUsd,
+    estimatedPages: pageCount,
+    fileSizeBytes: file.size,
+    fileHash,
+    model,
+    reserve: false,
+  });
+
+  if (!preflight.allowed) {
+    return Response.json(
+      {
+        error: preflight.reason ?? "Usage quota exceeded.",
+        failureReason: "quota_exceeded",
+        hint: "Subscribe at /pricing to extract questions from your files.",
+      },
+      { status: 402 },
+    );
+  }
+
   const jobId = randomUUID();
 
   await createExtractionJob({
     jobId,
     fileHash,
+    fileName: file.name,
+    mimeType,
+    extractionMode,
+    extractionModel: model,
     totalPages: pageCount,
     clerkUserId,
   });

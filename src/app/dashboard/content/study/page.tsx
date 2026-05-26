@@ -16,7 +16,9 @@ import { useStudyFile } from "@/hooks/use-study-files";
 import { getSourcePreview, normalizeSourceRegion } from "@/lib/highlightable-source";
 import { resolveSourceFileForViewing } from "@/lib/resolve-source-file";
 import { convex } from "@/lib/convex-client";
+import { touchStudyActivity } from "@/lib/study-activity";
 import { getRawQuestionText } from "@/lib/question-text";
+import { api } from "../../../../../convex/_generated/api";
 import { SourceDevToolbar } from "@/components/pdf/source-dev-toolbar";
 import { saveFileQueueItem } from "@/lib/pdf-view-storage";
 import { StudySessionChromeProvider } from "@/components/pdf/study-session-chrome";
@@ -27,6 +29,7 @@ import {
   PDF_QUIZ_ANSWERS_KEY,
 } from "@/lib/pdf-view-storage";
 import type { PdfMcq } from "@/lib/pdf-mcqs";
+import { useMutation } from "convex/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useMemo, useState } from "react";
@@ -68,6 +71,7 @@ function PdfStudyPageContent() {
   const mode = parseMode(searchParams.get("mode"));
 
   const { file, isLoading } = useStudyFile(fileId);
+  const recordStudyActivity = useMutation(api.users.recordStudyActivity);
   const [questionBookmarks, setQuestionBookmarks] = useState<Record<string, string[]>>(
     loadQuestionBookmarks,
   );
@@ -106,6 +110,8 @@ function PdfStudyPageContent() {
 
   function recordAnswer(questionId: string, answer: QuestionAnswer) {
     if (!file) return;
+    touchStudyActivity();
+    void recordStudyActivity({});
     setQuizAnswers((current) => {
       const next = {
         ...current,

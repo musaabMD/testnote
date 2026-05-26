@@ -12,7 +12,7 @@ import {
   saveFileUpvotes,
 } from "@/lib/pdf-view-storage";
 import { FileText, Plus, Search, Upload, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type FileListProps = {
   files: PdfFileQueueItem[];
@@ -37,10 +37,20 @@ export function FileList({
 }: FileListProps) {
   const [fileSearch, setFileSearch] = useState("");
   const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
-  const [bookmarkedFileIds, setBookmarkedFileIds] = useState<Set<string>>(loadBookmarkedFileIds);
-  const [upvoteCounts, setUpvoteCounts] = useState<Record<string, number>>(loadFileUpvoteCounts);
-  const [upvotedFileIds, setUpvotedFileIds] = useState<Set<string>>(loadUpvotedFileIds);
+  const [bookmarkedFileIds, setBookmarkedFileIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [upvoteCounts, setUpvoteCounts] = useState<Record<string, number>>({});
+  const [upvotedFileIds, setUpvotedFileIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [shareNotice, setShareNotice] = useState("");
+
+  useEffect(() => {
+    setBookmarkedFileIds(loadBookmarkedFileIds());
+    setUpvoteCounts(loadFileUpvoteCounts());
+    setUpvotedFileIds(loadUpvotedFileIds());
+  }, []);
 
   const filteredFiles = useMemo(() => {
     const normalized = fileSearch.trim().toLowerCase();

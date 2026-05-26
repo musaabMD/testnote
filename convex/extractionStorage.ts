@@ -16,6 +16,20 @@ const extractionJobStatus = v.union(
   v.literal("failed"),
 );
 
+const extractionPageStatus = v.union(
+  v.literal("pending"),
+  v.literal("processing"),
+  v.literal("done"),
+  v.literal("needs_review"),
+  v.literal("failed"),
+);
+
+const pageAuditStatus = v.union(
+  v.literal("passed"),
+  v.literal("partial"),
+  v.literal("failed"),
+);
+
 function isPermanentFailure(reason: string | undefined) {
   return (
     reason === "no_selectable_text" ||
@@ -35,6 +49,9 @@ export const getFileCache = query({
     extractionMode: v.string(),
     extractionModel: v.string(),
     appExtractionVersion: v.string(),
+    promptVersion: v.string(),
+    schemaVersion: v.string(),
+    renderVersion: v.string(),
   },
   handler: async (ctx, args) => {
     assertStorageSecret(args.secret);
@@ -46,7 +63,10 @@ export const getFileCache = query({
           .eq("fileHash", args.fileHash)
           .eq("extractionMode", args.extractionMode)
           .eq("extractionModel", args.extractionModel)
-          .eq("appExtractionVersion", args.appExtractionVersion),
+          .eq("appExtractionVersion", args.appExtractionVersion)
+          .eq("promptVersion", args.promptVersion)
+          .eq("schemaVersion", args.schemaVersion)
+          .eq("renderVersion", args.renderVersion),
       )
       .first();
 
@@ -69,6 +89,9 @@ export const upsertFileCache = mutation({
     extractionMode: v.string(),
     extractionModel: v.string(),
     appExtractionVersion: v.string(),
+    promptVersion: v.string(),
+    schemaVersion: v.string(),
+    renderVersion: v.string(),
     pageCount: v.number(),
     title: v.string(),
     summary: v.string(),
@@ -85,7 +108,10 @@ export const upsertFileCache = mutation({
           .eq("fileHash", args.fileHash)
           .eq("extractionMode", args.extractionMode)
           .eq("extractionModel", args.extractionModel)
-          .eq("appExtractionVersion", args.appExtractionVersion),
+          .eq("appExtractionVersion", args.appExtractionVersion)
+          .eq("promptVersion", args.promptVersion)
+          .eq("schemaVersion", args.schemaVersion)
+          .eq("renderVersion", args.renderVersion),
       )
       .first();
 
@@ -94,6 +120,9 @@ export const upsertFileCache = mutation({
       extractionMode: args.extractionMode,
       extractionModel: args.extractionModel,
       appExtractionVersion: args.appExtractionVersion,
+      promptVersion: args.promptVersion,
+      schemaVersion: args.schemaVersion,
+      renderVersion: args.renderVersion,
       pageCount: args.pageCount,
       title: args.title,
       summary: args.summary,
@@ -118,6 +147,10 @@ export const upsertExtractionJob = mutation({
     extractionKey: v.optional(v.string()),
     ownerId: v.optional(v.string()),
     fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
     clerkUserId: v.optional(v.string()),
     status: extractionJobStatus,
     progressPagesProcessed: v.number(),
@@ -138,6 +171,10 @@ export const upsertExtractionJob = mutation({
       extractionKey?: string;
       ownerId?: string;
       fileHash: string;
+      fileName?: string;
+      mimeType?: string;
+      extractionMode?: string;
+      extractionModel?: string;
       clerkUserId?: string;
       status: "queued" | "processing" | "ready" | "failed";
       progressPagesProcessed: number;
@@ -148,6 +185,10 @@ export const upsertExtractionJob = mutation({
     } = {
       jobId: args.jobId,
       fileHash: args.fileHash,
+      fileName: args.fileName,
+      mimeType: args.mimeType,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
       clerkUserId: args.clerkUserId,
       status: args.status,
       progressPagesProcessed: args.progressPagesProcessed,
@@ -192,6 +233,10 @@ export const claimExtractionJob = mutation({
     jobId: v.string(),
     ownerId: v.string(),
     fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
     clerkUserId: v.optional(v.string()),
     totalPages: v.number(),
     staleAfterMs: v.number(),
@@ -245,6 +290,10 @@ export const claimExtractionJob = mutation({
         jobId: args.jobId,
         ownerId: args.ownerId,
         fileHash: args.fileHash,
+        fileName: args.fileName,
+        mimeType: args.mimeType,
+        extractionMode: args.extractionMode,
+        extractionModel: args.extractionModel,
         clerkUserId: args.clerkUserId,
         status: "processing",
         progressPagesProcessed: 0,
@@ -271,6 +320,10 @@ export const claimExtractionJob = mutation({
       extractionKey: args.extractionKey,
       ownerId: args.ownerId,
       fileHash: args.fileHash,
+      fileName: args.fileName,
+      mimeType: args.mimeType,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
       clerkUserId: args.clerkUserId,
       status: "processing",
       progressPagesProcessed: 0,
@@ -475,6 +528,134 @@ export const upsertQuestionSource = mutation({
     return await ctx.db.insert("questionSources", {
       ...payload,
       createdAt: Date.now(),
+    });
+  },
+});
+
+export const upsertExtractionPage = mutation({
+  args: {
+    secret: v.string(),
+    jobId: v.string(),
+    fileHash: v.string(),
+    clerkUserId: v.optional(v.string()),
+    pageIndex: v.number(),
+    previewR2Key: v.optional(v.string()),
+    imageBase64R2Key: v.optional(v.string()),
+    text: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    complexity: v.optional(
+      v.union(
+        v.literal("text_selectable"),
+        v.literal("normal_image"),
+        v.literal("dense_image"),
+        v.literal("noise"),
+      ),
+    ),
+    puCost: v.optional(v.number()),
+    mode: v.optional(
+      v.union(
+        v.literal("existing_questions"),
+        v.literal("study_content"),
+        v.literal("mixed"),
+        v.literal("noise"),
+      ),
+    ),
+    candidateQuestionCount: v.optional(v.number()),
+    status: extractionPageStatus,
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const existing = await ctx.db
+      .query("extractionPages")
+      .withIndex("by_job_page", (q) =>
+        q.eq("jobId", args.jobId).eq("pageIndex", args.pageIndex),
+      )
+      .first();
+
+    const now = Date.now();
+    const payload = {
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      clerkUserId: args.clerkUserId,
+      pageIndex: args.pageIndex,
+      previewR2Key: args.previewR2Key,
+      imageBase64R2Key: args.imageBase64R2Key,
+      text: args.text,
+      width: args.width,
+      height: args.height,
+      complexity: args.complexity,
+      puCost: args.puCost,
+      mode: args.mode,
+      candidateQuestionCount: args.candidateQuestionCount,
+      status: args.status,
+      updatedAt: now,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("extractionPages", {
+      ...payload,
+      createdAt: now,
+    });
+  },
+});
+
+export const upsertExtractionPageAudit = mutation({
+  args: {
+    secret: v.string(),
+    jobId: v.string(),
+    fileHash: v.string(),
+    pageIndex: v.number(),
+    mode: v.optional(v.string()),
+    candidateQuestionCount: v.number(),
+    extractedQuestionCount: v.number(),
+    generatedQuestionCount: v.number(),
+    incompleteCount: v.number(),
+    needsReviewCount: v.number(),
+    retryCount: v.number(),
+    status: pageAuditStatus,
+    warnings: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const existing = await ctx.db
+      .query("extractionPageAudits")
+      .withIndex("by_job_page", (q) =>
+        q.eq("jobId", args.jobId).eq("pageIndex", args.pageIndex),
+      )
+      .first();
+
+    const now = Date.now();
+    const payload = {
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      pageIndex: args.pageIndex,
+      mode: args.mode,
+      candidateQuestionCount: args.candidateQuestionCount,
+      extractedQuestionCount: args.extractedQuestionCount,
+      generatedQuestionCount: args.generatedQuestionCount,
+      incompleteCount: args.incompleteCount,
+      needsReviewCount: args.needsReviewCount,
+      retryCount: args.retryCount,
+      status: args.status,
+      warnings: args.warnings,
+      updatedAt: now,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("extractionPageAudits", {
+      ...payload,
+      createdAt: now,
     });
   },
 });

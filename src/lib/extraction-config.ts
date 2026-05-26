@@ -1,7 +1,10 @@
 import type { ExtractionMode } from "@/lib/quiz-settings";
 
 /** Bump when extraction logic/prompts change to invalidate cache entries. */
-export const APP_EXTRACTION_VERSION = "4";
+export const APP_EXTRACTION_VERSION = "6";
+export const EXTRACTION_PROMPT_VERSION = "p1";
+export const EXTRACTION_SCHEMA_VERSION = "s1";
+export const EXTRACTION_RENDER_VERSION = "r1";
 
 export function parseExtractionMode(value: FormDataEntryValue | null): ExtractionMode {
   if (
@@ -50,6 +53,9 @@ export type ExtractionCacheKey = {
   extractionMode: ExtractionMode;
   extractionModel: string;
   appExtractionVersion: string;
+  promptVersion: string;
+  schemaVersion: string;
+  renderVersion: string;
 };
 
 export function buildExtractionCacheKey(
@@ -62,6 +68,9 @@ export function buildExtractionCacheKey(
     extractionMode,
     extractionModel,
     appExtractionVersion: APP_EXTRACTION_VERSION,
+    promptVersion: EXTRACTION_PROMPT_VERSION,
+    schemaVersion: EXTRACTION_SCHEMA_VERSION,
+    renderVersion: EXTRACTION_RENDER_VERSION,
   };
 }
 
@@ -71,5 +80,8 @@ export function extractionCacheKeyId(key: ExtractionCacheKey): string {
     key.extractionMode,
     key.extractionModel,
     key.appExtractionVersion,
+    key.promptVersion,
+    key.schemaVersion,
+    key.renderVersion,
   ].join(":");
 }

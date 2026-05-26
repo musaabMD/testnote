@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import {
+  countQuestionCandidateSignals,
   hasMcqOptionSequence,
+  hasQuestionIntent,
   isAnswerKeyLine,
   isMcqBlockBoundaryLine,
   isNotesOrExplanationLine,
@@ -60,6 +62,27 @@ describe("hasMcqOptionSequence", () => {
     ];
     assert.equal(hasMcqOptionSequence(lines, 1), true);
     assert.equal(hasMcqOptionSequence([{ text: "A) Only one" }], 0), false);
+  });
+});
+
+describe("question candidate signals", () => {
+  it("counts numbered and option-backed question blocks", () => {
+    assert.equal(
+      countQuestionCandidateSignals(`1. Which diagnosis is most likely?
+A) Asthma
+B) COPD
+C) Pneumonia
+
+2. What is the next step?
+A) Observe
+B) CT
+C) Antibiotics`),
+      2,
+    );
+  });
+
+  it("detects Arabic question intent", () => {
+    assert.equal(hasQuestionIntent("أي مما يلي هو التشخيص الأصح؟"), true);
   });
 });
 

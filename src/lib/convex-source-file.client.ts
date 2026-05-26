@@ -15,6 +15,36 @@ export async function uploadSourceFileToConvex(
   file: File,
   fileHash: string,
 ): Promise<boolean> {
+  try {
+    const r2Upload = await convex.mutation(api.sourceFiles.generateR2SourceUploadUrl, {
+      fileHash,
+      fileName: file.name,
+    });
+    const r2Response = await fetch(r2Upload.url, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+
+    if (r2Response.ok) {
+      await convex.mutation(api.r2.syncMetadata, { key: r2Upload.key });
+      await convex.mutation(api.sourceFiles.commitR2SourceFile, {
+        fileHash,
+        r2Key: r2Upload.key,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        sizeBytes: file.size,
+      });
+      return true;
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[source-file] client R2 upload failed:", error);
+    }
+  }
+
   if (file.size > MAX_CONVEX_CLIENT_UPLOAD_BYTES) {
     return false;
   }
@@ -29,9 +59,7 @@ export async function uploadSourceFileToConvex(
       body: file,
     });
 
-    if (!response.ok) {
-      return false;
-    }
+    if (!response.ok) return false;
 
     const payload = (await response.json()) as { storageId?: string };
     if (!payload.storageId) {

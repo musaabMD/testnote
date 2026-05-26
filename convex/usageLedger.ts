@@ -1,11 +1,13 @@
 import { v } from "convex/values";
 import { getCurrentPeriodBounds, getPlanLimits, normalizeAppPlan } from "./planLimits";
+import { isAdminClerkUserId } from "./adminAccess";
 import {
   assertUsageSecret,
   countTodayChatMessages,
   getEffectiveUserLimits,
   getOrCreateUserByClerkId,
   getOrCreateUsagePeriod,
+  hasPaidPlan,
   isBillingActive,
   sumActiveReservations,
 } from "./usageLedgerHelpers";
@@ -27,12 +29,23 @@ export const preflightAiUsage = mutation({
     fileSizeBytes: v.optional(v.number()),
     jobId: v.optional(v.string()),
     model: v.optional(v.string()),
+    reserve: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const shouldReserve = args.reserve ?? true;
     assertUsageSecret(args.secret);
 
     const user = await getOrCreateUserByClerkId(ctx, args.clerkUserId);
-    if (!isBillingActive(user.billingStatus ?? "none")) {
+    const admin = isAdminClerkUserId(args.clerkUserId);
+
+    if (!admin && !hasPaidPlan(user)) {
+      return {
+        allowed: false,
+        reason: "A paid plan is required to use AI features. Upgrade at /pricing.",
+      };
+    }
+
+    if (!admin && !isBillingActive(user.billingStatus ?? "none")) {
       return {
         allowed: false,
         reason: "Subscription inactive. Update billing to continue.",
@@ -141,6 +154,15 @@ export const preflightAiUsage = mutation({
           reason: `Daily chat limit reached (${limits.chatMessagesPerDay} messages).`,
         };
       }
+    }
+
+    if (!shouldReserve) {
+      return {
+        allowed: true,
+        warnBudget: period.aiCostUsd >= limits.warnAiBudgetUsd,
+        budgetWarningThreshold,
+        plan: normalizeAppPlan(user.plan),
+      };
     }
 
     const reservationId = await ctx.db.insert("quotaReservations", {
@@ -292,6 +314,8 @@ export const setUserPlanByClerkId = mutation({
       activeExtractionLimit: limits.activeExtractionLimit,
       maxPagesPerFile: limits.maxPagesPerFile,
       maxFileSizeBytes: limits.maxFileSizeBytes,
+      monthlyCredits: limits.monthlyCredits,
+      creditsRemaining: limits.monthlyCredits,
       updatedAt: Date.now(),
     });
 

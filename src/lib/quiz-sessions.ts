@@ -1,3 +1,5 @@
+import { touchStudyActivity } from "./study-activity";
+
 export type QuizSessionRecord = {
   id: string;
   fileId: string;
@@ -63,6 +65,7 @@ export function saveQuizSession(session: QuizSessionRecord) {
   if (typeof window === "undefined") return;
   const next = [session, ...loadQuizSessions()].slice(0, 100);
   window.localStorage.setItem(PDF_QUIZ_SESSIONS_KEY, JSON.stringify(next));
+  touchStudyActivity(session.finishedAt);
 }
 
 export function loadQuestionFeedback(): QuestionFeedbackRecord[] {

@@ -54,8 +54,7 @@ type ExamQuestion = {
 
 const labels = ["A", "B", "C", "D"];
 
-const LOGO_URL =
-  "https://q648y7e0kt.ufs.sh/f/7bppoSdGjTuBsGmvNyR3mYU4jKNLJh5ZQuVOqsSP06Elv89c";
+import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
 function filterValidQuestions(
   file: PdfFileQueueItem,
@@ -130,10 +129,10 @@ function IntroScreen({
 
           <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
             <Image
-              alt="DrNote"
+              alt={APP_NAME}
               className="size-7 rounded-lg object-contain"
               height={28}
-              src={LOGO_URL}
+              src={APP_LOGO_URL}
               unoptimized
               width={28}
             />

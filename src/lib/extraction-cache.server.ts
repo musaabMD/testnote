@@ -77,6 +77,9 @@ async function getConvexCachedExtraction(
       extractionMode: key.extractionMode,
       extractionModel: key.extractionModel,
       appExtractionVersion: key.appExtractionVersion,
+      promptVersion: key.promptVersion,
+      schemaVersion: key.schemaVersion,
+      renderVersion: key.renderVersion,
     });
     if (!row) return null;
     return {
@@ -112,6 +115,9 @@ async function syncExtractionToConvex(
     extractionMode: key.extractionMode,
     extractionModel: key.extractionModel,
     appExtractionVersion: key.appExtractionVersion,
+    promptVersion: key.promptVersion,
+    schemaVersion: key.schemaVersion,
+    renderVersion: key.renderVersion,
     pageCount,
     title: payload.title,
     summary: payload.summary,

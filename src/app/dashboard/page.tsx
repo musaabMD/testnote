@@ -3,6 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 import { AddSourceCard } from "@/components/dashboard/add-source-card";
 import { DashboardGreeting } from "@/components/dashboard/dashboard-greeting";
+import { DashboardStats } from "@/components/dashboard/dashboard-stats";
 import { FileList } from "@/components/pdf/file-list";
 import { useStudyFiles } from "@/hooks/use-study-files";
 import {
@@ -14,30 +15,34 @@ import {
   UPLOAD_ACCEPT_ATTRIBUTE,
 } from "@/lib/upload-file-types";
 import { getUserDisplayName } from "@/lib/user-display-name";
+import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
   type DragEvent,
 } from "react";
 
-const LOGO_URL =
-  "https://q648y7e0kt.ufs.sh/f/7bppoSdGjTuBsGmvNyR3mYU4jKNLJh5ZQuVOqsSP06Elv89c";
-
 export default function DashboardPage() {
   const { user } = useUser();
   const { files, isLoading: filesLoading } = useStudyFiles();
   const isReady = !filesLoading;
+  const [mounted, setMounted] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
-  const userName = getUserDisplayName(user);
+  const userName = mounted ? getUserDisplayName(user) : "You";
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleUpload = useCallback(
     async (incoming: FileList | File[] | null) => {
@@ -129,21 +134,23 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <header className="sticky top-0 z-50 bg-transparent px-4">
+      <header className="sticky top-0 z-50 bg-white/80 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/70">
         <div className="mx-auto flex h-16 max-w-3xl items-center gap-3">
-          <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="DrNote home">
+          <Link href="/" className="flex shrink-0 items-center gap-2" aria-label={`${APP_NAME} home`}>
             <Image
-              alt="DrNote"
+              alt={APP_NAME}
               className="size-8 rounded-xl object-contain"
               height={32}
-              src={LOGO_URL}
+              src={APP_LOGO_URL}
               unoptimized
               width={32}
             />
             <span className="hidden font-[family-name:var(--font-sora)] text-lg font-black text-slate-950 sm:inline">
-              DrNote
+              {APP_NAME}
             </span>
           </Link>
+          <div className="flex-1" />
+          <DashboardStats files={files ?? []} />
         </div>
       </header>
 

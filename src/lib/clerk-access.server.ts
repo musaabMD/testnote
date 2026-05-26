@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { isAdminClerkUserId } from "@/lib/admin-access.server";
 import {
   CLERK_FEATURES,
   getClerkFeatureSlug,
@@ -27,6 +28,7 @@ export async function getClerkAccess(): Promise<ClerkAccess> {
       hasPlan,
       hasAnyPaidPlan: () => paidPlanSlugs.some((slug) => hasPlan(slug)),
       hasPaidAccess: () =>
+        isAdminClerkUserId(session.userId) ||
         hasFeature(getClerkFeatureSlug("paidAccess")) ||
         paidPlanSlugs.some((slug) => hasPlan(slug)),
     };
