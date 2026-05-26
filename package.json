@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:source-qa": "tsx --test src/lib/__tests__/source-region-qa.test.ts src/lib/__tests__/source-page-load.test.ts",
-    "test:pipeline-safety": "tsx --test src/lib/__tests__/pipeline-safety.test.ts src/lib/__tests__/usage-ledger.test.ts",
+    "test:pipeline-safety": "tsx --test src/lib/__tests__/pipeline-safety.test.ts src/lib/__tests__/usage-ledger.test.ts src/lib/__tests__/upload-progress.test.ts",
     "test:extraction-failure": "tsx --test src/lib/__tests__/extraction-failure-classification.test.ts",
     "test:source-qa-manual": "tsx scripts/source-qa-run.mts",
     "test:deployed-duplicate-extraction": "tsx scripts/test-deployed-duplicate-extraction.mts",

@@ -50,7 +50,10 @@ export function loadUploadProgressRecords(): UploadProgressRecord[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
-      ? parsed.filter(isUploadProgressRecord).sort((a, b) => b.updatedAt - a.updatedAt)
+      ? parsed
+          .filter(isUploadProgressRecord)
+          .filter((record) => record.status !== "ready")
+          .sort((a, b) => b.updatedAt - a.updatedAt)
       : [];
   } catch {
     window.localStorage.removeItem(UPLOAD_PROGRESS_STORAGE_KEY);
@@ -61,9 +64,8 @@ export function loadUploadProgressRecords(): UploadProgressRecord[] {
 function saveUploadProgressRecords(records: UploadProgressRecord[]) {
   if (typeof window === "undefined") return;
 
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const next = records
-    .filter((record) => record.status !== "ready" || record.updatedAt > cutoff)
+    .filter((record) => record.status !== "ready")
     .slice(0, 8);
   window.localStorage.setItem(UPLOAD_PROGRESS_STORAGE_KEY, JSON.stringify(next));
   emitUploadProgressUpdated();

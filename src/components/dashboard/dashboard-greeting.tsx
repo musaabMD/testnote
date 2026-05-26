@@ -18,8 +18,11 @@ export function DashboardGreeting({ userName }: DashboardGreetingProps) {
   const [quote, setQuote] = useState<LearningQuote | null>(null);
 
   useEffect(() => {
-    setGreeting(getTimeSalutation(new Date().getHours()));
-    setQuote(getRandomLearningQuote());
+    const timeout = window.setTimeout(() => {
+      setGreeting(getTimeSalutation(new Date().getHours()));
+      setQuote(getRandomLearningQuote());
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   return (

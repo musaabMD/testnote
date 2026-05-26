@@ -41,7 +41,8 @@ export default function DashboardPage() {
   const userName = mounted ? getUserDisplayName(user) : "You";
 
   useEffect(() => {
-    setMounted(true);
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const handleUpload = useCallback(

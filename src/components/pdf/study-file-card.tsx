@@ -6,7 +6,6 @@ import {
   formatAddedDate,
   getFileAddedAt,
   getFileAddedBy,
-  getFilePageCount,
   isLinkResource,
 } from "@/lib/pdf-view-storage";
 import {
@@ -15,9 +14,9 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
-  FileText,
   Link2,
   User,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -64,13 +63,11 @@ export function StudyFileCard({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [isExpanded, onToggleExpanded]);
 
-  const pages = getFilePageCount(file);
   const added = formatAddedDate(getFileAddedAt(file));
   const addedBy = getFileAddedBy(file);
   const isLink = isLinkResource(file);
-  const formatChip = isLink
-    ? { icon: Link2, label: "Link" }
-    : { icon: FileText, label: `${pages} page${pages === 1 ? "" : "s"}` };
+  const displayTitle = getAiFileTitle(file);
+  const showOriginalFileName = displayTitle !== file.name;
 
   async function handleShareClick(event: React.MouseEvent) {
     event.stopPropagation();
@@ -129,9 +126,12 @@ export function StudyFileCard({
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-gray-900">{file.name}</p>
+          <p className="truncate text-sm font-bold text-gray-900">{displayTitle}</p>
+          {showOriginalFileName ? (
+            <p className="mt-0.5 truncate text-xs font-medium text-gray-400">{file.name}</p>
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <MetaChip icon={formatChip.icon} label={formatChip.label} />
+            {isLink ? <MetaChip icon={Link2} label="Link" /> : null}
             <MetaChip icon={Calendar} label={added} />
             <MetaChip icon={User} label={addedBy} />
           </div>
@@ -241,11 +241,17 @@ export function StudyFileCard({
   );
 }
 
+function getAiFileTitle(file: PdfFileQueueItem) {
+  const title = file.result.title.trim();
+  if (!title || title === "Extracted questions") return file.name;
+  return title;
+}
+
 function MetaChip({
   icon: Icon,
   label,
 }: {
-  icon: typeof FileText;
+  icon: LucideIcon;
   label: string;
 }) {
   return (

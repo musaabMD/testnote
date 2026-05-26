@@ -49,12 +49,10 @@ function statusLabel(record: UploadProgressRecord) {
 
 export function UploadProgressToast() {
   const [records, setRecords] = useState<UploadProgressRecord[]>([]);
-  const [now, setNow] = useState(0);
   const pollingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const refresh = () => {
-      setNow(Date.now());
       setRecords(loadUploadProgressRecords());
     };
     const timeout = window.setTimeout(refresh, 0);
@@ -65,11 +63,6 @@ export function UploadProgressToast() {
       window.removeEventListener(UPLOAD_PROGRESS_UPDATED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 5000);
-    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -93,9 +86,9 @@ export function UploadProgressToast() {
   const visible = useMemo(
     () =>
       records
-        .filter((record) => record.status !== "ready" || now - record.updatedAt < 15000)
+        .filter((record) => record.status !== "ready")
         .slice(0, 2),
-    [now, records],
+    [records],
   );
 
   if (!visible.length) return null;

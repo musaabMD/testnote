@@ -148,6 +148,42 @@ describe("extractSourceChunksFromPdfInProcess fallbacks", () => {
     assert.match(chunks[0]!.text, /vaccine/i);
   });
 
+  it("chunks repeated unnumbered recall blocks separated by answers", async () => {
+    const bytes = await createPdfWithLines([
+      "Which of the following is the most appropriate management?",
+      "A. Myomectomy",
+      "B. Hysterectomy",
+      "C. Endometrial ablation",
+      "D. Progesterone therapy",
+      "Answer: B",
+      "Discussed before",
+      "A 35-year-old woman with heavy menstruation. Which of the following is the next step?",
+      "A. Myomectomy",
+      "B. Correct the anemia",
+      "C. Oral contraceptive pills",
+      "D. Uterine artery embolization",
+      "Answer: B",
+      "A young woman has chronic pelvic pain. What is the best next step in management?",
+      "A. Myomectomy",
+      "B. Uterine artery ablation",
+    ]);
+    const chunks = await extractSourceChunksFromPdfInProcess(bytes);
+    assert.equal(chunks.length, 3);
+    assert.match(chunks[1]!.text, /35-year-old/);
+    assert.match(chunks[2]!.text, /young woman/);
+  });
+
+  it("does not turn numbered score notes into question chunks", async () => {
+    const bytes = await createPdfWithLines([
+      "Examiner 2: 96-97%",
+      "Assuming Gyn Has 50 Question",
+      "1 Mistake Will Be 2%",
+      "2 Mistakes Will Be 4%",
+    ]);
+    const chunks = await extractSourceChunksFromPdfInProcess(bytes);
+    assert.equal(chunks.length, 0);
+  });
+
   it("excludes answer keys and notes from question block highlights", async () => {
     const bytes = await createPdfWithLines([
       "11. Teenager with leg pain at night?",
@@ -168,5 +204,35 @@ describe("extractSourceChunksFromPdfInProcess fallbacks", () => {
     assert.doesNotMatch(chunks[0]!.text, /Osteoid osteomas are benign/i);
     assert.doesNotMatch(chunks[0]!.text, /Answer:/i);
     assert.ok(chunks[0]!.region.height < 0.2);
+  });
+
+  it("uses stable page block ids for model source references", async () => {
+    const bytes = await createPdfWithLines([
+      "1. Which organ produces insulin?",
+      "A) Liver",
+      "B) Pancreas",
+      "C) Kidney",
+      "D) Spleen",
+      "2. What is the first-line imaging test?",
+      "A) X-ray",
+      "B) Ultrasound",
+      "C) MRI",
+      "D) CT",
+    ]);
+    const chunks = await extractSourceChunksFromPdfInProcess(bytes);
+    assert.deepEqual(
+      chunks.map((chunk) => chunk.id),
+      ["p1_b1", "p1_b2"],
+    );
+  });
+
+  it("splits inline numbered question runs instead of sending one huge page block", async () => {
+    const bytes = await createPdfWithLines([
+      "1. Which diagnosis is most likely? A. Asthma B. COPD C. Pneumonia D. TB 2. What is the next step? A. Observe B. CT C. Antibiotics D. Surgery",
+    ]);
+    const chunks = await extractSourceChunksFromPdfInProcess(bytes);
+    assert.equal(chunks.length, 2);
+    assert.match(chunks[0]!.text, /Which diagnosis/);
+    assert.match(chunks[1]!.text, /next step/);
   });
 });

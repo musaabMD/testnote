@@ -290,24 +290,41 @@ function coerceMcqItem(item: unknown, index: number): PdfMcq | null {
       nestedQuestion?.questionText ??
       (typeof raw.question === "string" ? raw.question : undefined),
   ).trim();
+  const answer =
+    raw.answer && typeof raw.answer === "object" && !Array.isArray(raw.answer)
+      ? (raw.answer as Record<string, unknown>)
+      : null;
   const question = asString(
     typeof raw.question === "string" ? raw.question : questionText,
   ).trim();
   const options = coerceOptions(raw);
+  const explicitCorrectAnswer = asString(
+    raw.correctAnswer ?? raw.correct_answer ?? answer?.label,
+  ).trim();
+  const rawAnswerText = asString(raw.answer).trim();
+  const answerLabelFromString = /^[A-E]$/i.test(rawAnswerText)
+    ? rawAnswerText.toUpperCase()
+    : "";
 
   if (!questionText && !question && !options.length) return null;
 
   return {
-    questionNumber: asNumber(raw.questionNumber) ?? index + 1,
+    questionNumber:
+      asNumber(raw.questionNumber ?? raw.question_number ?? raw.question_number_original) ??
+      index + 1,
     questionId: asString(raw.questionId).trim() || undefined,
     questionText: questionText || question,
     question: question || questionText || undefined,
     options: options.length ? options : undefined,
     choices: Array.isArray(raw.choices)
-      ? raw.choices.map((choice) => asString(choice)).filter(Boolean)
-      : undefined,
-    correctAnswer: asString(raw.correctAnswer ?? raw.answer).trim() || undefined,
-    answer: asString(raw.answer).trim() || undefined,
+        ? raw.choices.map((choice) => asString(choice)).filter(Boolean)
+        : undefined,
+    correctAnswer:
+      explicitCorrectAnswer.toUpperCase() || answerLabelFromString || undefined,
+    answer:
+      asString(answer?.text).trim() ||
+      (answerLabelFromString ? "" : rawAnswerText) ||
+      undefined,
     explanation: asString(raw.explanation).trim() || undefined,
     notes: asStringArray(raw.notes ?? raw.note),
     imageIds: asStringArray(raw.imageIds),
@@ -315,15 +332,15 @@ function coerceMcqItem(item: unknown, index: number): PdfMcq | null {
     rawJson: raw.rawJson ?? raw,
     status: asString(raw.status, "completed"),
     sourceFile: asString(raw.sourceFile).trim() || undefined,
-    sourcePage: asNumber(raw.sourcePage),
+    sourcePage: asNumber(raw.sourcePage ?? raw.source_page ?? raw.page_number),
     sourceRegion: coerceRegion(raw.sourceRegion),
     imageRegion: coerceRegion(raw.imageRegion),
-    sourceChunkIds: asStringArray(raw.sourceChunkIds),
+    sourceChunkIds: asStringArray(raw.sourceChunkIds ?? raw.source_block_ids),
     sourcePagePreviewId: asString(raw.sourcePagePreviewId).trim() || undefined,
     sourcePageImageUrl: asString(raw.sourcePageImageUrl).trim() || undefined,
     sourcePageWidth: asNumber(raw.sourcePageWidth),
     sourcePageHeight: asNumber(raw.sourcePageHeight),
-    exactQuote: asString(raw.exactQuote).trim() || undefined,
+    exactQuote: asString(raw.exactQuote ?? raw.source_snippet).trim() || undefined,
   };
 }
 

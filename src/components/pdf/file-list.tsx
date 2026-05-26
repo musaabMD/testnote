@@ -47,9 +47,12 @@ export function FileList({
   const [shareNotice, setShareNotice] = useState("");
 
   useEffect(() => {
-    setBookmarkedFileIds(loadBookmarkedFileIds());
-    setUpvoteCounts(loadFileUpvoteCounts());
-    setUpvotedFileIds(loadUpvotedFileIds());
+    const timeout = window.setTimeout(() => {
+      setBookmarkedFileIds(loadBookmarkedFileIds());
+      setUpvoteCounts(loadFileUpvoteCounts());
+      setUpvotedFileIds(loadUpvotedFileIds());
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const filteredFiles = useMemo(() => {
@@ -64,7 +67,13 @@ export function FileList({
     if (!normalized) return sorted;
 
     return sorted.filter((file) =>
-      [file.name, file.status, file.result.summary, `${file.result.mcqs.length} questions`]
+      [
+        file.name,
+        file.result.title,
+        file.status,
+        file.result.summary,
+        `${file.result.mcqs.length} questions`,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(normalized),

@@ -2,7 +2,6 @@
 
 import { AlertCircle, ArrowRight, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogClose,
@@ -11,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { classifyUsageError } from "@/lib/quota-errors";
 import { cn } from "@/lib/utils";
@@ -33,13 +33,6 @@ export function QuotaLimitBanner({
     classified.kind === "rate_limit";
   const showUpgradePrompt =
     classified.kind === "plan_quota" || classified.kind === "billing_inactive";
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-
-  useEffect(() => {
-    if (showUpgradePrompt && !compact) {
-      setUpgradeOpen(true);
-    }
-  }, [compact, message, showUpgradePrompt]);
 
   const toneClass =
     classified.kind === "rate_limit"
@@ -63,7 +56,7 @@ export function QuotaLimitBanner({
       : "from-blue-600 to-cyan-600";
 
     return (
-      <Dialog open={upgradeOpen} onOpenChange={(open) => setUpgradeOpen(open)}>
+      <Dialog defaultOpen={!compact}>
         <div
           className={cn(
             "flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-slate-800 shadow-sm",
@@ -91,19 +84,22 @@ export function QuotaLimitBanner({
             </div>
           </div>
           {classified.primaryHref && classified.primaryLabel ? (
-            <button
-              className={cn(
-                "shrink-0 rounded-lg px-2.5 py-1.5 font-semibold text-white transition-colors",
-                isBillingInactive
-                  ? "bg-violet-700 hover:bg-violet-800"
-                  : "bg-blue-700 hover:bg-blue-800",
-                compact ? "text-xs" : "text-sm",
-              )}
-              onClick={() => setUpgradeOpen(true)}
-              type="button"
+            <DialogTrigger
+              render={
+                <button
+                  className={cn(
+                    "shrink-0 rounded-lg px-2.5 py-1.5 font-semibold text-white transition-colors",
+                    isBillingInactive
+                      ? "bg-violet-700 hover:bg-violet-800"
+                      : "bg-blue-700 hover:bg-blue-800",
+                    compact ? "text-xs" : "text-sm",
+                  )}
+                  type="button"
+                />
+              }
             >
               {compact ? "Plans" : classified.primaryLabel}
-            </button>
+            </DialogTrigger>
           ) : null}
         </div>
 
@@ -184,39 +180,44 @@ export function QuotaLimitBanner({
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
         ) : null}
         <div>
-      {isActionable ? (
-        <p className="text-sm font-semibold">{classified.title}</p>
-      ) : null}
-      <p className={`text-sm leading-relaxed ${isActionable ? "mt-1" : ""}`}>
-        {classified.message}
-      </p>
-      {classified.primaryHref && classified.primaryLabel ? (
-        <div className={`flex flex-wrap gap-2 ${compact ? "mt-2" : "mt-3"}`}>
-          <Link
-            className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
-              classified.kind === "billing_inactive"
-                ? "bg-violet-700 hover:bg-violet-800"
-                : "bg-blue-700 hover:bg-blue-800"
-            }`}
-            href={classified.primaryHref}
-          >
-            {classified.primaryLabel}
-          </Link>
-          {classified.secondaryHref && classified.secondaryLabel ? (
-            <Link
-              className="inline-flex items-center rounded-lg border border-current/20 bg-white/70 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white"
-              href={classified.secondaryHref}
-            >
-              {classified.secondaryLabel}
-            </Link>
+          {isActionable ? (
+            <p className="text-sm font-semibold">{classified.title}</p>
           ) : null}
-        </div>
-      ) : null}
-      {classified.kind === "rate_limit" ? (
-        <p className="mt-2 text-xs opacity-80">
-          Rate limits protect shared AI capacity. Wait a minute before retrying.
-        </p>
-      ) : null}
+          <p
+            className={`text-sm leading-relaxed ${
+              isActionable ? "mt-1" : ""
+            }`}
+          >
+            {classified.message}
+          </p>
+          {classified.primaryHref && classified.primaryLabel ? (
+            <div className={`flex flex-wrap gap-2 ${compact ? "mt-2" : "mt-3"}`}>
+              <Link
+                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-colors ${
+                  classified.kind === "billing_inactive"
+                    ? "bg-violet-700 hover:bg-violet-800"
+                    : "bg-blue-700 hover:bg-blue-800"
+                }`}
+                href={classified.primaryHref}
+              >
+                {classified.primaryLabel}
+              </Link>
+              {classified.secondaryHref && classified.secondaryLabel ? (
+                <Link
+                  className="inline-flex items-center rounded-lg border border-current/20 bg-white/70 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white"
+                  href={classified.secondaryHref}
+                >
+                  {classified.secondaryLabel}
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+          {classified.kind === "rate_limit" ? (
+            <p className="mt-2 text-xs opacity-80">
+              Rate limits protect shared AI capacity. Wait a minute before
+              retrying.
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

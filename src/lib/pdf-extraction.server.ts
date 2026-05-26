@@ -177,7 +177,7 @@ function dynamicExtractionMaxTokens(args: {
 }) {
   const estimatedQuestionCount =
     args.estimatedQuestionCount ?? Math.max(4, Math.min(24, args.pageCount * 4));
-  return Math.min(args.configuredMaxTokens, estimatedQuestionCount * 220 + 500, 2500);
+  return Math.min(args.configuredMaxTokens, estimatedQuestionCount * 260 + 800, 12_000);
 }
 
 function warnOnSuspiciousExtractionCost(args: {
@@ -421,7 +421,7 @@ async function runPdfMcqExtractionCore(args: {
     clerkUserId,
   } = args;
   const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
-  const configuredMaxTokens = getOpenRouterMaxTokens("OPENROUTER_EXTRACTION_MAX_TOKENS", 2500);
+  const configuredMaxTokens = getOpenRouterMaxTokens("OPENROUTER_EXTRACTION_MAX_TOKENS", 8000);
   const repairModel = getExtractionRepairModel();
   const cacheKey = buildExtractionCacheKey(fileHash, extractionMode, model);
   const extractionKey = extractionCacheKeyId(cacheKey);
@@ -1720,6 +1720,7 @@ async function requestMcqExtraction({
   const body = JSON.stringify({
     model,
     temperature: 0,
+    top_p: 0.1,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
     plugins: [{ id: "response-healing" }],
@@ -1784,14 +1785,18 @@ async function requestChunkMcqExtraction({
   McqExtractionSuccess | McqExtractionParseError | McqExtractionSchemaError | McqExtractionFailure
 > {
   const chunksForModel = chunks.map((chunk) => ({
-    id: chunk.id,
-    pageNumber: chunk.pageNumber,
+    block_id: chunk.id,
+    page_number: chunk.pageNumber,
     text: chunk.text,
+    bbox: chunk.region
+      ? [chunk.region.x, chunk.region.y, chunk.region.width, chunk.region.height]
+      : undefined,
   }));
 
   const body = JSON.stringify({
     model,
     temperature: 0,
+    top_p: 0.1,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
     plugins: [{ id: "response-healing" }],
@@ -1864,31 +1869,94 @@ function parseModelMcqResponse(
 function buildChunkExtractionPrompt(
   mode: ExtractionMode,
   relaxed: boolean,
-  chunks: Array<{ id: string; pageNumber: number; text: string }>,
+  blocks: Array<{
+    block_id: string;
+    page_number: number;
+    text: string;
+    bbox?: number[];
+  }>,
 ) {
-  const jsonShape =
-    'Return compact JSON with this shape: {"title":"string","summary":"max 20 words","mcqs":[{"questionNumber":11,"questionText":"string","options":[{"label":"A","text":"string"}],"correctAnswer":"C","notes":["max one short source note"],"sourceChunkIds":["chunk_id"],"exactQuote":"short quote from chunk"}]}.';
-
-  const rules =
-    "Create MCQ quiz questions from these source chunks. Process chunks in the exact order provided, page by page, and return one MCQ for every chunk that contains a question. Return JSON only. Each question must include sourceChunkIds (array of chunk ids from the provided list) and exactQuote (a short verbatim quote from the chunk). Do not invent sourceChunkIds — use only ids from the Chunks list. Do not include sourcePage or sourceRegion; coordinates are mapped from chunk ids on the server. Return only questions directly supported by the provided chunks.";
-
+  const pages = blocksToPageInput(blocks);
   const modeHint =
-    mode === "make-choices" || relaxed
-      ? "When choices are missing or fewer than four, generate plausible distractors."
-      : "Extract only questions that already exist in the chunks.";
+    mode === "choices-provided" && !relaxed
+      ? "Only extract questions that already include answer choices in the source."
+      : "Extract every real question you can find, even if the answer is missing.";
 
-  return `${rules} ${modeHint} ${jsonShape}\n\nChunks:\n${JSON.stringify(chunks)}`;
+  return `Analyze the following parsed PDF pages.
+
+Task:
+1. Count distinct questions.
+2. Extract distinct questions if present.
+3. Attach exact source references.
+4. Mark whether the document already contains questions or whether DrNote should generate new questions from the material.
+
+Rules:
+- ${modeHint}
+- Every extracted question must include page_number, source_block_ids, and source_snippet.
+- Use only source_block_ids that exist in the input.
+- source_snippet must be an exact short copied substring from the input.
+- Never invent a source.
+- Never invent an answer unless the input clearly contains it. If no answer is present, use {"label":"","text":"","found_in_source":false}.
+- If choices are missing, keep options empty. Do not fabricate options in this extraction pass.
+- Deduplicate repeated copies of the same question.
+- Ignore headings, page numbers, watermarks, Telegram links, captions, explanations, and non-question numbered lists.
+- Return valid JSON only. No markdown.
+
+Input JSON:
+${JSON.stringify({ document_id: "current_upload", pages })}
+
+Return JSON in this exact structure:
+{"title":"short content-based document name","summary":"max 20 words","document_has_questions":true,"distinct_question_count":0,"confidence":0,"pages_summary":[{"page_number":1,"question_count":0,"notes":""}],"questions":[{"question_id_temp":"q1","type":"extracted","page_number":1,"source_block_ids":["p1_b1"],"source_snippet":"Exact copied text from the input","question_number_original":"1","stem":"Question stem here","options":{"A":"","B":"","C":"","D":""},"answer":{"label":"","text":"","found_in_source":false},"explanation":null,"tags":[],"difficulty":null,"confidence":0,"duplicate_group":null}],"generation_needed":false,"generation_reason":null,"warnings":[]}`;
 }
 
 function buildRepairChunkExtractionPrompt(
   mode: ExtractionMode,
-  chunks: Array<{ id: string; pageNumber: number; text: string }>,
+  blocks: Array<{
+    block_id: string;
+    page_number: number;
+    text: string;
+    bbox?: number[];
+  }>,
 ) {
-  return `Your previous response was invalid JSON or did not match the required MCQ schema. Return ONLY valid JSON with keys title, summary, and mcqs (non-empty array). Each mcq needs questionNumber, questionText, options (at least 4), correctAnswer, sourceChunkIds, exactQuote. Mode: ${mode}.\n\nChunks:\n${JSON.stringify(chunks)}`;
+  return `Your previous response was invalid JSON or did not match the required source-first extraction schema. Return ONLY valid JSON with keys title, summary, document_has_questions, distinct_question_count, pages_summary, and questions. Each question needs stem, page_number, source_block_ids, source_snippet, options object, and answer object. Do not invent sources or answers. Mode: ${mode}.
+
+Input JSON:
+${JSON.stringify({ document_id: "current_upload", pages: blocksToPageInput(blocks) })}`;
 }
 
 function buildRepairExtractionPrompt(mode: ExtractionMode) {
   return `Your previous response was invalid JSON or did not match the required MCQ schema. Return ONLY valid JSON with keys title, summary, and mcqs (non-empty array). Each mcq needs questionNumber, questionText, options (at least 4), and correctAnswer. Mode: ${mode}.`;
+}
+
+function blocksToPageInput(
+  blocks: Array<{
+    block_id: string;
+    page_number: number;
+    text: string;
+    bbox?: number[];
+  }>,
+) {
+  const pagesByNumber = new Map<
+    number,
+    Array<{ block_id: string; text: string; bbox?: number[] }>
+  >();
+
+  for (const block of blocks) {
+    const pageBlocks = pagesByNumber.get(block.page_number) ?? [];
+    pageBlocks.push({
+      block_id: block.block_id,
+      text: block.text,
+      bbox: block.bbox,
+    });
+    pagesByNumber.set(block.page_number, pageBlocks);
+  }
+
+  return [...pagesByNumber.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([page_number, pageBlocks]) => ({
+      page_number,
+      blocks: pageBlocks,
+    }));
 }
 
 function buildEmptyMcqError(mode: ExtractionMode) {
@@ -1935,38 +2003,44 @@ function normalizeResult(result: PdfMcqResult): PdfMcqResult {
   return {
     title: result.title.trim() || "Extracted questions",
     summary: result.summary.trim(),
-    mcqs: result.mcqs.map((item, index) => ({
-      questionId: item.questionId,
-      questionNumber: item.questionNumber ?? index + 1,
-      questionText: formatQuestionText(item.questionText ?? item.question ?? ""),
-      options: (item.options ??
-        item.choices?.map((choice, choiceIndex) => ({
-          label: String.fromCharCode(65 + choiceIndex),
-          text: formatOptionText(choice),
-        })) ??
-        []
-      ).map((option) => ({
-        label: option.label,
-        text: formatOptionText(option.text),
-      })),
-      correctAnswer: (item.correctAnswer ?? item.answer ?? "").trim(),
-      notes:
-        item.notes ?? (item.explanation?.trim() ? [item.explanation.trim()] : []),
-      imageIds: item.imageIds ?? [],
-      imageUrls: item.imageUrls ?? [],
-      rawJson: item.rawJson ?? item,
-      status: item.status ?? "completed",
-      sourceFile: item.sourceFile?.trim() || undefined,
-      sourcePage: item.sourcePage,
-      sourceRegion: normalizeMcqSourceRegion(item.sourceRegion, item.sourcePage),
-      imageRegion: normalizeImageRegion(item.imageRegion),
-      sourceChunkIds: item.sourceChunkIds?.length ? item.sourceChunkIds : undefined,
-      sourcePagePreviewId: item.sourcePagePreviewId,
-      sourcePageImageUrl: item.sourcePageImageUrl,
-      sourcePageWidth: item.sourcePageWidth,
-      sourcePageHeight: item.sourcePageHeight,
-      exactQuote: item.exactQuote?.trim() || undefined,
-    })),
+    mcqs: result.mcqs.map((item, index) => {
+      const correctAnswer = (item.correctAnswer ?? "").trim();
+      const hasSource = Boolean(item.sourceChunkIds?.length || item.sourcePage);
+
+      return {
+        questionId: item.questionId,
+        questionNumber: item.questionNumber ?? index + 1,
+        questionText: formatQuestionText(item.questionText ?? item.question ?? ""),
+        options: (item.options ??
+          item.choices?.map((choice, choiceIndex) => ({
+            label: String.fromCharCode(65 + choiceIndex),
+            text: formatOptionText(choice),
+          })) ??
+          []
+        ).map((option) => ({
+          label: option.label,
+          text: formatOptionText(option.text),
+        })),
+        correctAnswer,
+        answer: item.answer?.trim() || undefined,
+        notes:
+          item.notes ?? (item.explanation?.trim() ? [item.explanation.trim()] : []),
+        imageIds: item.imageIds ?? [],
+        imageUrls: item.imageUrls ?? [],
+        rawJson: item.rawJson ?? item,
+        status: item.status ?? (correctAnswer && hasSource ? "completed" : "needs_review"),
+        sourceFile: item.sourceFile?.trim() || undefined,
+        sourcePage: item.sourcePage,
+        sourceRegion: normalizeMcqSourceRegion(item.sourceRegion, item.sourcePage),
+        imageRegion: normalizeImageRegion(item.imageRegion),
+        sourceChunkIds: item.sourceChunkIds?.length ? item.sourceChunkIds : undefined,
+        sourcePagePreviewId: item.sourcePagePreviewId,
+        sourcePageImageUrl: item.sourcePageImageUrl,
+        sourcePageWidth: item.sourcePageWidth,
+        sourcePageHeight: item.sourcePageHeight,
+        exactQuote: item.exactQuote?.trim() || undefined,
+      };
+    }),
   };
 }
 
@@ -2003,20 +2077,34 @@ function clamp01(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
-function buildSystemPrompt(mode: ExtractionMode, relaxed = false, repair = false): string {
+function buildSystemPrompt(_mode: ExtractionMode, _relaxed = false, repair = false): string {
+  void _mode;
+  void _relaxed;
+
   if (repair) {
-    return "Fix the previous invalid response. Return only valid JSON matching the required MCQ schema with a non-empty mcqs array. No markdown.";
+    return "You are DrNote Extraction Engine. Fix the previous invalid response. Return only valid source-first JSON. No markdown.";
   }
-  if (relaxed) {
-    return "You extract multiple-choice questions from educational PDF text chunks. When choices are missing or fewer than four, generate plausible distractors. Return only valid JSON with no markdown.";
-  }
-  if (mode === "extract-and-generate") {
-    return "You extract questions from educational text chunks and may generate additional study questions inspired by the material. Return only valid JSON with no markdown.";
-  }
-  if (mode === "make-choices") {
-    return "You extract questions from educational text chunks. When choices are missing or fewer than four, generate plausible distractors so each question has at least four options. Return only valid JSON with no markdown.";
-  }
-  return "You extract only questions that already exist in the provided text chunks. Do not invent questions. Return only valid JSON with no markdown.";
+  return `You are DrNote Extraction Engine.
+
+Your job is to analyze parsed PDF text/OCR blocks and find study questions.
+
+You must be source-first:
+- Every extracted question must include the exact page number.
+- Every extracted question must include the source block IDs used.
+- Every extracted question must include a short exact source snippet copied from the input.
+- Never invent a source.
+- Never invent an answer unless the input clearly contains it.
+- If the file has no real questions, say that questions were not found and set generation_needed true.
+
+Definitions:
+A real question may be a numbered exam-style question, a clinical vignette with answer options, a question ending with ?, a prompt like "Which of the following", a prompt like "What is the most appropriate", a stem followed by options A/B/C/D, or a recall-style question with "Answer:".
+
+Do not count page numbers, headings, explanations, repeated duplicate copies of the same question, watermarks, Telegram links, captions, or random numbered lists that are not questions.
+
+Duplicate handling:
+If the same question appears twice, count it once. If one copy is from parsed text and another copy is from OCR/image text, keep the cleaner version but include both source block IDs if useful.
+
+Return valid JSON only. No markdown.`;
 }
 
 function buildExtractionPrompt(mode: ExtractionMode, relaxed = false): string {
@@ -2024,10 +2112,10 @@ function buildExtractionPrompt(mode: ExtractionMode, relaxed = false): string {
     'Return compact JSON with this shape: {"title":"string","summary":"max 20 words","mcqs":[{"questionNumber":11,"questionText":"string","options":[{"label":"A","text":"string"}],"correctAnswer":"C","notes":["max one short source note"],"sourcePage":1,"sourceRegion":{"x":0.1,"y":0.2,"width":0.8,"height":0.15}}]}.';
 
   const formatHints =
-    "Recognize multiple-choice questions in common formats: numbered stems with options labeled A-D.";
+    "Recognize multiple-choice questions in common formats: numbered stems, recall blocks, and options labeled A-D, A-C, or A-B.";
 
   const shared =
-    "For each question, include sourcePage and sourceRegion when using full-file mode. Format questionText and option text in normal sentence case and fix obvious spelling typos while preserving medical meaning.";
+    "Set title to a short, human-readable document name based on the content, not the uploaded filename. For each question, include sourcePage and sourceRegion when using full-file mode. Format questionText and option text in normal sentence case and fix obvious spelling typos while preserving medical meaning.";
 
   if (relaxed) {
     return `Extract every multiple-choice question you can find. ${formatHints} ${shared} ${jsonShape}`;

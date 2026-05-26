@@ -1,9 +1,9 @@
 import type { ExtractionMode } from "@/lib/quiz-settings";
 
 /** Bump when extraction logic/prompts change to invalidate cache entries. */
-export const APP_EXTRACTION_VERSION = "6";
-export const EXTRACTION_PROMPT_VERSION = "p1";
-export const EXTRACTION_SCHEMA_VERSION = "s1";
+export const APP_EXTRACTION_VERSION = "8";
+export const EXTRACTION_PROMPT_VERSION = "p2-source-first";
+export const EXTRACTION_SCHEMA_VERSION = "s2-source-first";
 export const EXTRACTION_RENDER_VERSION = "r1";
 
 export function parseExtractionMode(value: FormDataEntryValue | null): ExtractionMode {
@@ -40,6 +40,12 @@ export function getMaxChunksPerBatch(): number {
   const raw = process.env.MAX_CHUNKS_PER_BATCH;
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 40;
+}
+
+export function getMaxPagesPerBatch(): number {
+  const raw = process.env.MAX_PAGES_PER_BATCH;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 4;
 }
 
 export function getMaxInputCharsPerBatch(): number {

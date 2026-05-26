@@ -1,7 +1,10 @@
 import type { SourceChunk, SourceRegion } from "@/lib/highlightable-source";
 import {
+  hasQuestionIntent,
   hasMcqOptionSequence,
+  isMcqBlockBoundaryLine,
   isOptionLine,
+  normalizeLineForParsing,
   parseLeadingQuestionNumber,
   parseStandaloneQuestionNumberLine,
   trimMcqBlockEndIndex,
@@ -37,13 +40,13 @@ export async function extractSourceChunksFromPdfInProcess(
   const pdf = await loadServerPdfDocument(pdfBytes);
   const pdfjs = await getServerPdfJs();
   const chunks: SourceChunk[] = [];
-  let chunkIndex = 0;
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1 });
     const positioned = await getPositionedTextItems(page, viewport, pdfjs.Util);
     const columnItemGroups = splitItemsByColumn(positioned, viewport.width);
+    let pageBlockIndex = 0;
 
     for (const columnItems of columnItemGroups) {
       const lines = groupIntoLines(columnItems);
@@ -55,9 +58,9 @@ export async function extractSourceChunksFromPdfInProcess(
       );
 
       for (const chunk of pageChunks) {
-        chunkIndex += 1;
+        pageBlockIndex += 1;
         chunks.push({
-          id: `chunk_${fileId ?? "file"}_${chunkIndex}`,
+          id: `p${pageNumber}_b${pageBlockIndex}`,
           fileId,
           pageNumber: chunk.pageNumber,
           text: chunk.text,
@@ -74,15 +77,38 @@ function findQuestionStartIndexes(lines: TextLine[]): number[] {
   const questionStarts: number[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
-    if (
-      parseLeadingQuestionNumber(lines[index]!.text) !== null ||
-      parseStandaloneQuestionNumberLine(lines[index]!.text) !== null
-    ) {
+    if (lineLooksLikeNumberedQuestionStart(lines, index)) {
       questionStarts.push(index);
     }
   }
 
   return questionStarts;
+}
+
+function lineLooksLikeNumberedQuestionStart(lines: TextLine[], index: number): boolean {
+  const line = lines[index]!;
+  const hasQuestionNumber =
+    parseLeadingQuestionNumber(line.text) !== null ||
+    parseStandaloneQuestionNumberLine(line.text) !== null;
+
+  if (!hasQuestionNumber) return false;
+
+  const lookahead: TextLine[] = [];
+  for (
+    let lookaheadIndex = index;
+    lookaheadIndex < lines.length && lookaheadIndex < index + 10;
+    lookaheadIndex += 1
+  ) {
+    if (lookaheadIndex > index && isOptionBlockBoundary(lines[lookaheadIndex]!.text)) {
+      break;
+    }
+    lookahead.push(lines[lookaheadIndex]!);
+  }
+  const lookaheadText = lookahead.map((entry) => entry.text).join(" ");
+  if (hasQuestionIntent(lookaheadText)) return true;
+
+  const optionStart = lookahead.findIndex((entry) => isOptionLine(entry.text, "A"));
+  return optionStart >= 0 && hasMcqOptionSequence(lookahead, optionStart);
 }
 
 /** question start → next question start, including image gaps between stem and options. */
@@ -92,20 +118,28 @@ function chunkQuestionBlocks(
   pageWidth: number,
   pageHeight: number,
 ): Array<{ pageNumber: number; text: string; region: SourceRegion }> {
+  const candidates: Array<{ pageNumber: number; text: string; region: SourceRegion }> = [];
   const questionStarts = findQuestionStartIndexes(lines);
   if (questionStarts.length > 0) {
-    return chunkByQuestionStarts(
-      lines,
-      questionStarts,
-      pageNumber,
-      pageWidth,
-      pageHeight,
+    candidates.push(
+      ...chunkByQuestionStarts(
+        lines,
+        questionStarts,
+        pageNumber,
+        pageWidth,
+        pageHeight,
+      ),
     );
   }
 
-  const optionChunks = chunkByOptionBlocks(lines, pageNumber, pageWidth, pageHeight);
-  if (optionChunks.length > 0) {
-    return optionChunks;
+  candidates.push(...chunkByOptionBlocks(lines, pageNumber, pageWidth, pageHeight));
+  candidates.push(
+    ...chunkByInlineNumberedBlocks(lines, pageNumber, pageWidth, pageHeight),
+  );
+
+  const deduped = dedupeChunkCandidates(candidates);
+  if (deduped.length > 0) {
+    return deduped;
   }
 
   return chunkWholePage(lines, pageNumber, pageWidth, pageHeight);
@@ -146,15 +180,20 @@ function chunkByOptionBlocks(
   for (let index = 0; index < lines.length; index += 1) {
     if (index < cursor) continue;
     if (!isOptionLine(lines[index]!.text, "A")) continue;
-    if (!hasMcqOptionSequence(lines, index)) continue;
 
     let startIndex = index;
     for (let back = index - 1; back >= 0 && back >= index - 14; back -= 1) {
       const lineText = lines[back]!.text;
       if (parseLeadingQuestionNumber(lineText) !== null) break;
+      if (isOptionBlockBoundary(lineText)) {
+        startIndex = back + 1;
+        break;
+      }
       if (isOptionLine(lineText, "D") || isOptionLine(lineText, "E")) break;
       startIndex = back;
     }
+
+    if (!hasQuestionOptionBlock(lines, startIndex, index)) continue;
 
     let endIndex = index;
     for (let forward = index; forward < lines.length && forward < index + 20; forward += 1) {
@@ -181,6 +220,75 @@ function chunkByOptionBlocks(
   return chunks;
 }
 
+function chunkByInlineNumberedBlocks(
+  lines: TextLine[],
+  pageNumber: number,
+  pageWidth: number,
+  pageHeight: number,
+): Array<{ pageNumber: number; text: string; region: SourceRegion }> {
+  const fullText = lines
+    .map((line) => line.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!fullText) return [];
+
+  const markers = Array.from(
+    fullText.matchAll(/(?:^|\s)(?:Q(?:uestion)?\.?\s*)?(\d{1,4})\s*[\.\):\-]\s+(?=\S)/gi),
+  );
+  if (markers.length < 2) return [];
+
+  return markers
+    .map((marker, index) => {
+      const start = marker.index ?? 0;
+      const end =
+        index + 1 < markers.length ? markers[index + 1]!.index ?? fullText.length : fullText.length;
+      const text = fullText.slice(start, end).trim();
+      if (!inlineQuestionCandidateLooksValid(text)) return null;
+      return textToChunk(text, lines, pageNumber, pageWidth, pageHeight, 0.5);
+    })
+    .filter(
+      (chunk): chunk is { pageNumber: number; text: string; region: SourceRegion } =>
+        Boolean(chunk),
+    );
+}
+
+function hasQuestionOptionBlock(
+  lines: TextLine[],
+  startIndex: number,
+  optionStartIndex: number,
+): boolean {
+  if (hasMcqOptionSequence(lines, optionStartIndex)) return true;
+
+  const labels = new Set<string>();
+  for (
+    let index = optionStartIndex;
+    index < lines.length && index < optionStartIndex + 8;
+    index += 1
+  ) {
+    const match = lines[index]!.text.match(/^\s*\(?([A-Ea-e])[\.\):\-]/);
+    if (match?.[1]) labels.add(match[1].toUpperCase());
+  }
+
+  if (!labels.has("A") || !labels.has("B")) return false;
+
+  const stemText = lines
+    .slice(startIndex, optionStartIndex)
+    .map((line) => line.text)
+    .join(" ");
+
+  return hasQuestionIntent(stemText);
+}
+
+function isOptionBlockBoundary(text: string): boolean {
+  const normalized = text.trim();
+  return (
+    !normalized ||
+    /^-{5,}$/.test(normalized) ||
+    isMcqBlockBoundaryLine(normalized)
+  );
+}
+
 /** Last-resort fallback: one chunk per page/column when MCQ-like content is present. */
 function chunkWholePage(
   lines: TextLine[],
@@ -197,13 +305,101 @@ function chunkWholePage(
 function pageLooksLikeMcqContent(lines: TextLine[]): boolean {
   let optionLines = 0;
 
-  for (const line of lines) {
-    if (parseLeadingQuestionNumber(line.text) !== null) return true;
-    if (parseStandaloneQuestionNumberLine(line.text) !== null) return true;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (lineLooksLikeNumberedQuestionStart(lines, index)) return true;
     if (isOptionLine(line.text)) optionLines += 1;
   }
 
-  return optionLines >= 2;
+  return optionLines >= 2 && hasQuestionIntent(lines.map((line) => line.text).join(" "));
+}
+
+function inlineQuestionCandidateLooksValid(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  if (!normalized || normalized.length < 20) return false;
+  if (hasQuestionIntent(normalized)) return true;
+
+  const optionLabels = new Set<string>();
+  for (const match of normalized.matchAll(/(?:^|\s)([A-Ea-e])[\.\):\-]\s+\S/g)) {
+    optionLabels.add(match[1]!.toUpperCase());
+  }
+  return optionLabels.has("A") && optionLabels.has("B") && (optionLabels.has("C") || optionLabels.has("D"));
+}
+
+function dedupeChunkCandidates(
+  chunks: Array<{ pageNumber: number; text: string; region: SourceRegion }>,
+): Array<{ pageNumber: number; text: string; region: SourceRegion }> {
+  const deduped: Array<{ pageNumber: number; text: string; region: SourceRegion }> = [];
+
+  for (const chunk of chunks) {
+    const normalized = normalizeChunkText(chunk.text);
+    if (!normalized) continue;
+
+    const duplicateIndex = deduped.findIndex((existing) => {
+      if (existing.pageNumber !== chunk.pageNumber) return false;
+      return textContainmentScore(normalized, normalizeChunkText(existing.text)) >= 0.82;
+    });
+
+    if (duplicateIndex < 0) {
+      deduped.push(chunk);
+      continue;
+    }
+
+    if (questionBlockScore(chunk.text) > questionBlockScore(deduped[duplicateIndex]!.text)) {
+      deduped[duplicateIndex] = chunk;
+    }
+  }
+
+  return deduped.sort((a, b) => {
+    if (a.pageNumber !== b.pageNumber) return a.pageNumber - b.pageNumber;
+    return a.region.y - b.region.y;
+  });
+}
+
+function questionBlockScore(text: string) {
+  const optionCount = Array.from(text.matchAll(/(?:^|\s)[A-Ea-e][\.\):\-]\s+\S/g)).length;
+  return text.length + optionCount * 100 + (hasQuestionIntent(text) ? 200 : 0);
+}
+
+function normalizeChunkText(text: string) {
+  return normalizeLineForParsing(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06ff\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textContainmentScore(a: string, b: string) {
+  if (!a || !b) return 0;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (longer.includes(shorter)) return shorter.length / longer.length;
+
+  const shorterTokens = new Set(shorter.split(" ").filter((token) => token.length > 2));
+  const longerTokens = new Set(longer.split(" ").filter((token) => token.length > 2));
+  if (!shorterTokens.size) return 0;
+
+  let hits = 0;
+  for (const token of shorterTokens) {
+    if (longerTokens.has(token)) hits += 1;
+  }
+  return hits / shorterTokens.size;
+}
+
+function textToChunk(
+  text: string,
+  lines: TextLine[],
+  pageNumber: number,
+  pageWidth: number,
+  pageHeight: number,
+  confidence: number,
+): { pageNumber: number; text: string; region: SourceRegion } | null {
+  const chunk = blockLinesToChunk(lines, pageNumber, pageWidth, pageHeight, confidence);
+  if (!chunk) return null;
+  return {
+    ...chunk,
+    text: text.replace(/\s+/g, " ").trim(),
+  };
 }
 
 function blockLinesToChunk(
