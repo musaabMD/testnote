@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { PricingTable } from "@clerk/nextjs";
 import { BillingActions } from "@/components/billing-actions";
+import { PricingPlans } from "@/components/pricing-plans";
 import { PublicHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
@@ -14,32 +14,30 @@ export const metadata: Metadata = {
 
 export default function PricingPage() {
   return (
-    <main className="min-h-screen bg-[#f7f7f8] font-[family-name:var(--font-dm-sans)] text-slate-950">
+    <main className="min-h-screen bg-white font-[family-name:var(--font-dm-sans)] text-slate-950">
       <PublicHeader />
 
-      <section className="mx-auto px-5 py-12 sm:px-6 sm:py-16">
-        <div className="mx-auto max-w-6xl">
-          <div className="mb-10 flex flex-col items-center text-center sm:mb-12">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              Save hours, learn smarter.
+      <section className="border-b border-slate-200 bg-slate-50">
+        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-5 py-10 sm:px-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase text-slate-500">Pricing</p>
+            <h1 className="mt-3 max-w-2xl text-3xl font-black text-slate-950 sm:text-4xl">
+              Plans for serious exam prep.
             </h1>
-            <p className="mt-3 max-w-lg text-base leading-7 text-slate-500">
-              Pick a plan to unlock AI extraction, quizzes, and tutoring.
+            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Upload medical PDFs, extract reliable questions, review source-backed
+              answers, and study with the AI tutor.
             </p>
-            <div className="mt-5">
-              <BillingActions />
-            </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6">
-            <PricingTable
-              ctaPosition="bottom"
-              for="user"
-              highlightedPlan={process.env.NEXT_PUBLIC_CLERK_BILLING_HIGHLIGHTED_PLAN ?? "pro"}
-              newSubscriptionRedirectUrl="/dashboard"
-            />
+          <div className="shrink-0">
+            <BillingActions />
           </div>
         </div>
+      </section>
+
+      <section className="px-5 py-8 sm:px-6 sm:py-10">
+        <PricingPlans />
       </section>
     </main>
   );
