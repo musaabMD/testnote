@@ -6,6 +6,7 @@ import {
   isConvexStorageConfigured,
   isDevelopmentStorageAllowed,
 } from "@/lib/server-storage.server";
+import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
 
 export type ExtractionJobStatus = "queued" | "processing" | "ready" | "failed";
 
@@ -189,9 +190,16 @@ export async function updateExtractionJob(
 
   if (!job) return null;
 
+  const sanitizedPatch = {
+    ...patch,
+    ...(patch.error !== undefined
+      ? { error: sanitizeUserFacingError(patch.error) }
+      : {}),
+  };
+
   const updated: ExtractionJobRecord = {
     ...job,
-    ...patch,
+    ...sanitizedPatch,
     updatedAt: Date.now(),
   };
 

@@ -14,6 +14,7 @@ import {
   inferUploadMimeType,
   isSupportedUploadFile,
 } from "@/lib/upload-file-types";
+import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -102,10 +103,9 @@ export async function POST(request: Request) {
         await updateExtractionJob(jobId, {
           status: "failed",
           failureReason: "unknown_transient_error",
-          error:
-            error instanceof Error
-              ? error.message
-              : "Extraction failed temporarily. Please try again.",
+          error: sanitizeUserFacingError(
+            error instanceof Error ? error.message : undefined,
+          ),
         });
       }
     });

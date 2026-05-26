@@ -5,6 +5,7 @@ import {
 import { isPdfMcqResult } from "@/lib/pdf-mcqs";
 import { getQuotaSubject } from "@/lib/request-user.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
+import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
 
 export const runtime = "nodejs";
 
@@ -36,7 +37,9 @@ export async function GET(
       progressPagesProcessed: job.progressPagesProcessed,
       totalPages: job.totalPages,
       fileHash: job.fileHash,
-      error: job.error,
+      error: job.error
+        ? sanitizeUserFacingError(job.error)
+        : undefined,
       failureReason: job.failureReason,
     };
 
