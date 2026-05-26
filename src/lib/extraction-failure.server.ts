@@ -15,6 +15,7 @@ export type ExtractionFailureReason =
   | "file_too_large"
   | "unsupported_file_type"
   | "suspicious_extraction_cost"
+  | "worker_timeout"
   | "unknown_transient_error"
   | "server_config_error";
 
@@ -82,6 +83,10 @@ const FAILURE_MESSAGES: Record<
     error: "Extraction cost estimate is unusually high for this file.",
     hint: "Try a smaller file or contact support if this file should be allowed.",
   },
+  worker_timeout: {
+    error: "Extraction took too long and was stopped.",
+    hint: "Retry the upload. Large files may need a shorter PDF or a paid plan with higher limits.",
+  },
   unknown_transient_error: {
     error: "Extraction failed temporarily. Please try again.",
   },
@@ -109,6 +114,7 @@ export function isTransientFailureReason(reason: ExtractionFailureReason): boole
     reason === "model_invalid_json" ||
     reason === "model_invalid_schema" ||
     reason === "model_timeout" ||
+    reason === "worker_timeout" ||
     reason === "unknown_transient_error" ||
     reason === "openrouter_error"
   );
@@ -122,6 +128,7 @@ export function isUpstreamFailureReason(reason: ExtractionFailureReason): boolea
     reason === "model_timeout" ||
     reason === "pdf_text_probe_failed" ||
     reason === "chunk_extraction_failed" ||
+    reason === "worker_timeout" ||
     reason === "unknown_transient_error"
   );
 }

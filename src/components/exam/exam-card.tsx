@@ -82,11 +82,24 @@ export function ExamCard({ exam, inLibrary, onToggleLibrary }: ExamCardProps) {
   );
 }
 
-export function ExamLibraryEmptyState() {
+export function ExamLibraryEmptyState({
+  hasAvailableExams = true,
+}: {
+  hasAvailableExams?: boolean;
+}) {
   return (
     <div className="rounded-2xl border-2 border-gray-300 bg-white px-4 py-12 text-center shadow-sm">
       <BookOpen className="mx-auto size-10 text-gray-300" aria-hidden />
-      <p className="mt-3 text-sm font-bold text-gray-500">No exams match your search</p>
+      <p className="mt-3 text-sm font-bold text-gray-500">
+        {hasAvailableExams
+          ? "No exams match your search"
+          : "No exams with study files yet"}
+      </p>
+      {!hasAvailableExams ? (
+        <p className="mt-1 text-sm text-gray-500">
+          Check back soon — new exam materials are added regularly.
+        </p>
+      ) : null}
     </div>
   );
 }

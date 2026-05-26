@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { QuotaLimitBanner } from "@/components/quota-limit-banner";
 import {
   filterSupportedUploadFiles,
   processPdfUploads,
@@ -300,7 +301,9 @@ export function QBankUpload({
                 </div>
               </div>
               {item.error ? (
-                <p className="mb-2 text-xs leading-relaxed text-red-600">{item.error}</p>
+                <div className="mb-2">
+                  <QuotaLimitBanner compact message={item.error} />
+                </div>
               ) : null}
               <div className="h-1 w-full overflow-hidden rounded-full bg-gray-100">
                 <div
@@ -460,9 +463,7 @@ export function QBankUpload({
         </div>
 
         {globalError ? (
-          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {globalError}
-          </p>
+          <QuotaLimitBanner className="mt-4" message={globalError} />
         ) : null}
 
         {showContinueLink && canContinue ? (

@@ -9,8 +9,8 @@ export const processStudyFile = defineWorkflow(components.workflow, {
     fileName: v.string(),
   },
 }).handler(async () => {
-  // Skeleton: upload still runs synchronously via /api/pdf/mcqs.
-  // Job records are written during extraction for future non-blocking UI.
+  // Extraction runs in Next.js after() today. Durable recovery is handled by
+  // Convex cron recoverStaleExtractionJobsInternal every 2 minutes.
   return null;
 });
 

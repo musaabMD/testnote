@@ -10,6 +10,7 @@ import {
 } from "@/lib/quiz-tutor-prompt";
 import type { PdfMcq } from "@/lib/pdf-mcqs";
 import { cleanExplanationText } from "@/lib/question-text";
+import { formatUsageErrorForChat } from "@/lib/quota-errors";
 import { streamTutorReply } from "@/lib/tutor-chat-client";
 import { ChevronDown, MessageSquare, Send, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -66,8 +67,9 @@ export function QuizFloatingTutor({
       setStreamingReply("");
     } catch (error) {
       if (controller.signal.aborted) return;
-      const message =
-        error instanceof Error ? error.message : "Could not reach the AI tutor.";
+      const message = formatUsageErrorForChat(
+        error instanceof Error ? error.message : "Could not reach the AI tutor.",
+      );
       setMessages((current) => [...current, { role: "assistant", text: message }]);
       setStreamingReply("");
     } finally {

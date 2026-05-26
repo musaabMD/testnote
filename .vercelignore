@@ -1,0 +1,14 @@
+.DS_Store
+*.log
+
+.env*.local
+.git
+.next
+.vercel
+node_modules
+tsconfig.tsbuildinfo
+
+.agents
+.claude
+.data
+.qa

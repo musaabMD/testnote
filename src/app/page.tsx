@@ -1,14 +1,25 @@
-import { FileUp, ListChecks, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
+import { FileUp, ListChecks, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { FeatureGrid } from "@/components/feature-grid";
 import { HeroRotatingLine } from "@/components/hero-feature-rotator";
-import { PdfDropzone } from "@/components/pdf/pdf-dropzone";
 import { PublicHeader } from "@/components/site-header";
 import {
   FEATURE_CARD_CLASS,
   PRODUCT_FEATURES,
 } from "@/lib/product-features";
+
+const PdfDropzone = dynamic(
+  () => import("@/components/pdf/pdf-dropzone").then((mod) => mod.PdfDropzone),
+  {
+    loading: () => (
+      <div className="flex min-h-[220px] items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+        Loading upload…
+      </div>
+    ),
+  },
+);
 
 export const metadata: Metadata = {
   title: "AI Study Notes and Quiz Generator",

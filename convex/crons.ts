@@ -19,4 +19,10 @@ crons.interval(
   internal.crons.refreshPosthogFlags,
 );
 
+crons.interval(
+  "recover stale extraction jobs",
+  { minutes: 2 },
+  internal.extractionStorage.recoverStaleExtractionJobsInternal,
+);
+
 export default crons;

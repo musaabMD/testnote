@@ -1,5 +1,6 @@
 "use client";
 
+import { QuotaLimitBanner } from "@/components/quota-limit-banner";
 import { StudyFileCard } from "@/components/pdf/study-file-card";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import {
@@ -165,9 +166,7 @@ export function FileList({
       </p>
 
       {uploadError ? (
-        <p className="mb-3 rounded-2xl bg-red-50 px-4 py-3 text-center text-sm font-bold text-red-600">
-          {uploadError}
-        </p>
+        <QuotaLimitBanner className="mb-3" message={uploadError} />
       ) : null}
 
       {shareNotice ? (

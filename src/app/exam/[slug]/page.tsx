@@ -4,7 +4,8 @@ import { StudyFileCard } from "@/components/pdf/study-file-card";
 import { PublicHeader } from "@/components/site-header";
 import { Badge } from "@/components/ui/badge";
 import { useStudyFiles } from "@/hooks/use-study-files";
-import { CATEGORY_COLORS, getExamBySlug } from "@/lib/exams";
+import { useExamBySlug } from "@/hooks/use-exam-catalog";
+import { CATEGORY_COLORS } from "@/lib/exams";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import {
   filterSupportedUploadFiles,
@@ -51,7 +52,7 @@ import {
 export default function ExamLandingPage() {
   const params = useParams();
   const slug = typeof params.slug === "string" ? params.slug : "";
-  const exam = getExamBySlug(slug);
+  const { exam, isLoading: examLoading } = useExamBySlug(slug);
   const libraryRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
@@ -132,6 +133,18 @@ export default function ExamLandingPage() {
     },
     [handleUpload],
   );
+
+  if (examLoading) {
+    return (
+      <main className="min-h-screen bg-white text-slate-950">
+        <PublicHeader />
+        <section className="mx-auto flex max-w-3xl flex-col items-center px-4 py-24 text-center">
+          <Loader2 className="size-8 animate-spin text-gray-300" aria-hidden />
+          <p className="mt-3 text-sm font-semibold text-gray-400">Loading exam…</p>
+        </section>
+      </main>
+    );
+  }
 
   if (!exam) {
     return (

@@ -14,6 +14,7 @@ import type * as billing from "../billing.js";
 import type * as billingQueries from "../billingQueries.js";
 import type * as crons from "../crons.js";
 import type * as emails from "../emails.js";
+import type * as exams from "../exams.js";
 import type * as extractionStorage from "../extractionStorage.js";
 import type * as http from "../http.js";
 import type * as planLimits from "../planLimits.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   billingQueries: typeof billingQueries;
   crons: typeof crons;
   emails: typeof emails;
+  exams: typeof exams;
   extractionStorage: typeof extractionStorage;
   http: typeof http;
   planLimits: typeof planLimits;

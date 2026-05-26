@@ -17,7 +17,7 @@ type BucketState = {
 const buckets = new Map<string, BucketState>();
 
 export const API_RATE_LIMITS = {
-  pdfExtract: { rate: 10, periodMs: 60 * 60 * 1000, capacity: 3 },
+  pdfExtract: { rate: 20, periodMs: 60 * 60 * 1000, capacity: 12 },
   tutorChat: { rate: 30, periodMs: 60 * 1000, capacity: 6 },
   grammarFix: { rate: 30, periodMs: 60 * 60 * 1000, capacity: 6 },
   ocr: { rate: 12, periodMs: 60 * 60 * 1000, capacity: 4 },

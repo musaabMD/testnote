@@ -295,4 +295,32 @@ export default defineSchema({
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_job", ["jobId"])
     .index("by_file_hash", ["fileHash"]),
+
+  examCatalog: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    country: v.string(),
+    countryName: v.string(),
+    category: v.union(
+      v.literal("Medical"),
+      v.literal("Dental"),
+      v.literal("Legal"),
+      v.literal("Language"),
+      v.literal("Pharmacy"),
+      v.literal("Nursing"),
+      v.literal("Laboratory"),
+      v.literal("Radiology"),
+    ),
+    description: v.string(),
+    details: v.string(),
+    fileCount: v.number(),
+    sortOrder: v.number(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_country", ["countryName"])
+    .index("by_category", ["category"])
+    .index("by_active_sort", ["isActive", "sortOrder"]),
 });

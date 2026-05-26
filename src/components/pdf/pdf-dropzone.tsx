@@ -16,6 +16,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { QuotaLimitBanner } from "@/components/quota-limit-banner";
+import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
   useCallback,
@@ -25,7 +27,6 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
-import { useUser } from "@clerk/nextjs";
 import { processPdfUploads } from "@/lib/process-pdf-upload";
 import {
   filterSupportedUploadFiles,
@@ -695,7 +696,7 @@ export function PdfDropzone() {
       </div>
 
       {error ? (
-        <p className="mt-4 text-center text-sm font-medium text-red-500">{error}</p>
+        <QuotaLimitBanner className="mt-4" message={error} />
       ) : null}
     </div>
   );

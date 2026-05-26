@@ -193,9 +193,9 @@ function getSuspiciousExtractionCostBlock(args: {
 }): { error: string; hint: string } | null {
   const maxSmallFileCost = getEnvNumber(
     "EXTRACTION_SUSPICIOUS_SMALL_FILE_MAX_USD",
-    0.05,
+    0.08,
   );
-  const maxCostPerPage = getEnvNumber("EXTRACTION_SUSPICIOUS_MAX_USD_PER_PAGE", 0.02);
+  const maxCostPerPage = getEnvNumber("EXTRACTION_SUSPICIOUS_MAX_USD_PER_PAGE", 0.035);
   const costPerPage = costRatio(args.estimatedCostUsd, args.pageCount);
 
   if (args.pageCount <= 5 && args.estimatedCostUsd > maxSmallFileCost) {

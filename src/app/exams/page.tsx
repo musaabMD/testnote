@@ -2,7 +2,7 @@
 
 import { ExamCard, ExamLibraryEmptyState } from "@/components/exam/exam-card";
 import { PublicHeader } from "@/components/site-header";
-import { EXAM_CATEGORIES, EXAMS } from "@/lib/exams";
+import { useExamCatalog } from "@/hooks/use-exam-catalog";
 import {
   loadExamLibrary,
   toggleExamInLibrary,
@@ -14,12 +14,15 @@ export default function ExamsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [librarySlugs, setLibrarySlugs] = useState<string[]>(loadExamLibrary);
-  const isReady = true;
   const [notice, setNotice] = useState("");
+  const { examsWithFiles, categories, isLoading } = useExamCatalog({
+    withFilesOnly: true,
+  });
 
   const filteredExams = useMemo(() => {
+    const source = examsWithFiles ?? [];
     const normalized = searchQuery.trim().toLowerCase();
-    let filtered = EXAMS;
+    let filtered = source;
 
     if (normalized) {
       filtered = filtered.filter((exam) =>
@@ -43,9 +46,9 @@ export default function ExamsPage() {
       const aInLibrary = librarySlugs.includes(a.slug) ? 1 : 0;
       const bInLibrary = librarySlugs.includes(b.slug) ? 1 : 0;
       if (aInLibrary !== bInLibrary) return bInLibrary - aInLibrary;
-      return a.name.localeCompare(b.name);
+      return a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
     });
-  }, [librarySlugs, searchQuery, selectedCategory]);
+  }, [examsWithFiles, librarySlugs, searchQuery, selectedCategory]);
 
   function handleToggleLibrary(slug: string, name: string, event: React.MouseEvent) {
     event.preventDefault();
@@ -55,6 +58,8 @@ export default function ExamsPage() {
     setNotice(added ? `${name} added to your library` : `${name} removed from your library`);
     window.setTimeout(() => setNotice(""), 2500);
   }
+
+  const availableCount = examsWithFiles?.length ?? 0;
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -104,7 +109,7 @@ export default function ExamsPage() {
             label="All"
             onClick={() => setSelectedCategory(null)}
           />
-          {EXAM_CATEGORIES.map((category) => (
+          {categories.map((category) => (
             <CategoryChip
               key={category}
               active={selectedCategory === category}
@@ -119,10 +124,10 @@ export default function ExamsPage() {
         </div>
 
         <p className="mb-3 text-xs font-semibold text-gray-400">
-          {isReady
-            ? `${filteredExams.length} of ${EXAMS.length} exam${EXAMS.length === 1 ? "" : "s"}`
-            : "Loading exams…"}
-          {isReady && librarySlugs.length
+          {isLoading
+            ? "Loading exams…"
+            : `${filteredExams.length} of ${availableCount} exam${availableCount === 1 ? "" : "s"}`}
+          {!isLoading && librarySlugs.length
             ? ` · ${librarySlugs.length} in your library`
             : ""}
         </p>
@@ -133,7 +138,7 @@ export default function ExamsPage() {
           </p>
         ) : null}
 
-        {!isReady ? (
+        {isLoading ? (
           <div className="rounded-2xl border border-gray-200 bg-gray-100 p-10 text-center">
             <p className="text-sm font-semibold text-gray-400">Loading exams…</p>
           </div>
@@ -151,7 +156,7 @@ export default function ExamsPage() {
             ))}
           </div>
         ) : (
-          <ExamLibraryEmptyState />
+          <ExamLibraryEmptyState hasAvailableExams={availableCount > 0} />
         )}
       </section>
     </main>

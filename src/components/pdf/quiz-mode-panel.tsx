@@ -28,6 +28,11 @@ import {
 } from "@/lib/question-edits";
 import { saveQuizSession } from "@/lib/quiz-sessions";
 import {
+  clearQuizProgress,
+  loadQuizProgress,
+  saveQuizProgress,
+} from "@/lib/quiz-progress";
+import {
   buildChoiceExplanations,
   getShortQuizFeedback,
   hasUsableExplanationNotes,
@@ -129,7 +134,7 @@ export function QuizModePanel({
   onRecordAnswer: (questionId: string, answer: QuestionAnswer) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => loadQuizProgress(file.id)?.index ?? 0);
   const [finished, setFinished] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<PdfQuizSettings>(loadPdfQuizSettings);
@@ -160,8 +165,18 @@ export function QuizModePanel({
     [file, questionEdits, questions],
   );
 
-  const question = validQuestions[index];
-  const displayIndex = question ? resolveQuestionIndex(questions, question) : index;
+  const effectiveIndex = Math.min(
+    index,
+    Math.max(validQuestions.length - 1, 0),
+  );
+
+  useEffect(() => {
+    if (finished || validQuestions.length === 0) return;
+    saveQuizProgress(file.id, effectiveIndex);
+  }, [file.id, finished, effectiveIndex, validQuestions.length]);
+
+  const question = validQuestions[effectiveIndex];
+  const displayIndex = question ? resolveQuestionIndex(questions, question) : effectiveIndex;
   const questionId = question ? getQuestionId(file, question, displayIndex) : "";
   const edit = questionId ? questionEdits[questionId] : undefined;
   const pendingSelection =
@@ -181,7 +196,7 @@ export function QuizModePanel({
   const textDirection = isRtl ? "rtl" : "ltr";
   const answerState = questionId ? questionAnswers[questionId] : undefined;
   const isBookmarked = questionId ? bookmarkedQuestionIds.has(questionId) : false;
-  const isLastQuestion = index >= validQuestions.length - 1;
+  const isLastQuestion = effectiveIndex >= validQuestions.length - 1;
   const showFeedback =
     settings.showAnswers === "asIGo" && Boolean(answerState);
   const canViewSource = Boolean(
@@ -461,7 +476,7 @@ export function QuizModePanel({
       center: (
         <div className="flex items-center gap-2">
           <span className="min-w-[3.5rem] text-center text-sm font-bold text-slate-500">
-            {index + 1} / {validQuestions.length}
+            {effectiveIndex + 1} / {validQuestions.length}
           </span>
           <button
             className={`grid size-9 place-items-center rounded-full transition ${
@@ -536,7 +551,7 @@ export function QuizModePanel({
           </button>
           <button
             className="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-30"
-            disabled={index === 0}
+            disabled={effectiveIndex === 0}
             onClick={goPrev}
             type="button"
             aria-label="Previous question"
@@ -565,7 +580,7 @@ export function QuizModePanel({
     fixingGrammar,
     goNext,
     goPrev,
-    index,
+    effectiveIndex,
     isBookmarked,
     isLastQuestion,
     isRtl,
@@ -715,6 +730,7 @@ export function QuizModePanel({
           <button
             className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-base font-bold text-white"
             onClick={() => {
+              clearQuizProgress(file.id);
               setFinished(false);
               setIndex(0);
             }}
@@ -774,6 +790,7 @@ export function QuizModePanel({
     });
     setCompletedDurationMs(finishedAt - startedAt);
     setSubmitPromptOpen(false);
+    clearQuizProgress(file.id);
     setFinished(true);
   }
 

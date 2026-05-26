@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 
 function assertStorageSecret(secret: string) {
   const expected = process.env.EXTRACTION_STORAGE_SECRET;
@@ -477,3 +478,50 @@ export const upsertQuestionSource = mutation({
     });
   },
 });
+
+export const recoverStaleExtractionJobs = mutation({
+  args: {
+    secret: v.string(),
+    staleAfterMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+    return await recoverStaleJobsHandler(ctx, args.staleAfterMs);
+  },
+});
+
+export const recoverStaleExtractionJobsInternal = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const staleAfterMs = Number(process.env.EXTRACTION_LOCK_STALE_AFTER_MS ?? 600_000);
+    return await recoverStaleJobsHandler(
+      ctx,
+      Number.isFinite(staleAfterMs) ? staleAfterMs : 600_000,
+    );
+  },
+});
+
+async function recoverStaleJobsHandler(ctx: MutationCtx, staleAfterMs: number) {
+  const now = Date.now();
+  const cutoff = now - staleAfterMs;
+  const rows = await ctx.db.query("extractionJobs").collect();
+  let recovered = 0;
+
+  for (const row of rows) {
+    const stuck =
+      (row.status === "queued" || row.status === "processing") &&
+      row.updatedAt < cutoff;
+    if (!stuck) continue;
+
+    await ctx.db.patch(row._id, {
+      status: "failed",
+      failureReason: "worker_timeout",
+      error:
+        "Extraction took too long and was marked stale. Retry the upload or contact support if this keeps happening.",
+      updatedAt: now,
+    });
+    recovered += 1;
+  }
+
+  return { recovered };
+}

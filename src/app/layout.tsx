@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono, Sora, DM_Sans } from "next/font/google";
 import { AppProviders } from "@/components/providers";
 import "./globals.css";
@@ -17,7 +18,7 @@ const geistMono = Geist_Mono({
 const sora = Sora({
   variable: "--font-sora",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+  weight: ["700", "800"],
 });
 
 const dmSans = DM_Sans({
@@ -67,12 +68,6 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${sora.variable} ${dmSans.variable} h-full antialiased`}
     >
-      <head>
-        <link
-          rel="stylesheet"
-          href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css"
-        />
-      </head>
       <body className="min-h-full flex flex-col">
         {clerkEnabled ? (
           <ClerkProvider>
@@ -81,6 +76,7 @@ export default function RootLayout({
         ) : (
           <AppProviders>{children}</AppProviders>
         )}
+        <Analytics />
       </body>
     </html>
   );

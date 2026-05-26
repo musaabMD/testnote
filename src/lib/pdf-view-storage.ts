@@ -316,20 +316,36 @@ export function getFileAddedBy(file: PdfFileQueueItem): string {
   return file.addedBy?.trim() || "You";
 }
 
-export function formatAddedDate(timestamp: number): string {
+export function formatAddedDate(timestamp: number, nowMs = Date.now()): string {
   const date = new Date(timestamp);
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayDiff = Math.round((startOfToday - startOfDate) / 86_400_000);
+  const diffMs = Math.max(0, nowMs - timestamp);
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  const diffHours = Math.floor(diffMinutes / 60);
 
-  if (dayDiff === 0) return "Today";
+  const startOfToday = new Date(nowMs);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfDate = new Date(date);
+  startOfDate.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfDate.getTime()) / 86_400_000,
+  );
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) {
+    return `${diffMinutes} min${diffMinutes === 1 ? "" : "s"} ago`;
+  }
+  if (dayDiff === 0) {
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  }
   if (dayDiff === 1) return "Yesterday";
-  if (dayDiff < 7) return `${dayDiff}d ago`;
+  if (dayDiff < 7) return `${dayDiff} days ago`;
 
+  const now = new Date(nowMs);
+  const sameYear = date.getFullYear() === now.getFullYear();
   return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
   });
 }
 

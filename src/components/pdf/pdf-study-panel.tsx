@@ -76,6 +76,7 @@ import {
   type RagRetrievalResult,
   type RagSourceChunk,
 } from "@/lib/source-rag";
+import { formatUsageErrorForChat } from "@/lib/quota-errors";
 import { streamTutorReply } from "@/lib/tutor-chat-client";
 import { api } from "../../../convex/_generated/api";
 
@@ -3246,7 +3247,7 @@ function formatTutorError(message: string) {
   if (/returned no text|empty response/i.test(message)) {
     return "The tutor response was empty. Try sending again, or ask for a shorter answer.";
   }
-  return message;
+  return formatUsageErrorForChat(message);
 }
 
 async function getAskRetrieval(

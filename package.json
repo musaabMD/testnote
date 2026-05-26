@@ -14,6 +14,10 @@
     "test:extraction-failure": "npx tsx --test src/lib/__tests__/extraction-failure-classification.test.ts",
     "test:source-qa-manual": "npx tsx scripts/source-qa-run.mts",
     "test:deployed-duplicate-extraction": "npx tsx scripts/test-deployed-duplicate-extraction.mts",
+    "test:clerk-billing": "npx tsx --test src/lib/__tests__/clerk-billing-webhook.test.ts",
+    "test:quiz-progress": "npx tsx --test src/lib/__tests__/quiz-progress.test.ts",
+    "test:quota-errors": "npx tsx --test src/lib/__tests__/quota-errors.test.ts",
+    "test:publish-readiness": "npx tsx scripts/publish-verification.mts",
     "report:cost": "npx tsx scripts/internal-cost-report.mts",
     "report:bundle": "npx tsx scripts/internal-bundle-report.mts"
   },
@@ -33,6 +37,7 @@
     "@convex-dev/stripe": "^0.1.4",
     "@convex-dev/workflow": "^0.4.2",
     "@posthog/convex": "^1.0.6",
+    "@vercel/analytics": "^2.0.1",
     "ai": "^6.0.191",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
