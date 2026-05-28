@@ -68,11 +68,16 @@ import {
   getOpenRouterModel,
   parseJsonFromModel,
 } from "@/lib/openrouter-client";
+import { extractMcqsFromMistralOcrPages } from "@/lib/ocr-mcq-extraction.server";
 import type { ExtractionMode } from "@/lib/quiz-settings";
 import { formatOptionText, formatQuestionText } from "@/lib/question-text";
 import { normalizeImageRegion } from "@/lib/pdf-question-images";
 import { attachServerSourcePreviews } from "@/lib/source-preview-store.server";
-import { isMistralOcrAvailable, runMistralOcr } from "@/lib/mistral-ocr.server";
+import {
+  getMistralOcrModel,
+  isMistralOcrAvailable,
+  runMistralOcr,
+} from "@/lib/mistral-ocr.server";
 import { ocrPagesToSourceChunks } from "@/lib/ocr-chunks";
 
 export type { ExtractionFailureReason } from "@/lib/extraction-failure.server";
@@ -197,6 +202,20 @@ function logExtractionCacheKey(args: {
 
 function getExtractionRepairModel() {
   return getOpenRouterModel("OPENROUTER_EXTRACTION_REPAIR_MODEL", "google/gemini-2.5-flash");
+}
+
+function shouldUseMistralOcrExtraction(mimeType: string, fileName: string): boolean {
+  return (
+    mimeType === "application/pdf" ||
+    fileName.toLowerCase().endsWith(".pdf") ||
+    mimeType.startsWith("image/")
+  );
+}
+
+function getUploadExtractionModel(mimeType: string, fileName: string) {
+  return shouldUseMistralOcrExtraction(mimeType, fileName)
+    ? getMistralOcrModel()
+    : getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
 }
 
 function dynamicExtractionMaxTokens(args: {
@@ -448,7 +467,7 @@ export async function runPdfMcqExtraction(args: {
   email?: string | null;
   jobId?: string;
 }): Promise<ExtractionSuccessResponse | ExtractionErrorResponse> {
-  const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
+  const model = getUploadExtractionModel(args.mimeType, args.fileName);
   const cacheKey = buildExtractionCacheKey(args.fileHash, args.extractionMode, model);
   const extractionKey = extractionCacheKeyId(cacheKey);
   const existing = inFlightExtractions.get(extractionKey);
@@ -495,7 +514,7 @@ async function runPdfMcqExtractionCore(args: {
   // pageCount may be wrong (client PDF.js worker failure returns 1).
   // We re-assign it after the server-side probe corrects it.
   let pageCount = args.pageCount;
-  const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
+  const model = getUploadExtractionModel(mimeType, fileName);
   const configuredMaxTokens = getOpenRouterMaxTokens("OPENROUTER_EXTRACTION_MAX_TOKENS", 16000);
   const repairModel = getExtractionRepairModel();
   const cacheKey = buildExtractionCacheKey(fileHash, extractionMode, model);
@@ -614,6 +633,99 @@ async function runPdfMcqExtractionCore(args: {
 
   let sourceChunks: SourceChunk[] = [];
   let sourcePagePacks: SourcePagePack[] = [];
+
+  if (shouldUseMistralOcrExtraction(mimeType, fileName)) {
+    if (!isMistralOcrAvailable()) {
+      return failExtraction({
+        jobId: job.id,
+        reason: "server_config_error",
+        ctx: runCtx,
+        overrides: {
+          error: "Mistral OCR is not configured for file extraction.",
+          hint: "Set MISTRAL_OCR_API_KEY on the server.",
+        },
+      });
+    }
+
+    await updateExtractionJob(job.id, {
+      status: "processing",
+      totalPages: pageCount,
+    });
+
+    const ocrResult = await runMistralOcr(arrayBuffer, fileHash, fileName);
+    if (!ocrResult?.pages.length) {
+      return failExtraction({
+        jobId: job.id,
+        reason: "mistral_ocr_error",
+        ctx: runCtx,
+      });
+    }
+
+    pageCount = Math.max(pageCount, ocrResult.pages.length);
+    runCtx.pageCount = pageCount;
+    await updateExtractionJob(job.id, {
+      status: "processing",
+      totalPages: pageCount,
+      progressPagesProcessed: ocrResult.pages.length,
+    });
+
+    const ocrExtraction = extractMcqsFromMistralOcrPages({
+      pages: ocrResult.pages,
+      fileHash,
+      fileName,
+    });
+    sourceChunks = ocrExtraction.sourceChunks;
+    runCtx.sourceChunksCount = sourceChunks.length;
+    runCtx.batchCount = sourceChunks.length
+      ? splitChunksIntoBatches(sourceChunks).length
+      : 1;
+
+    await recordPageScanProgress({
+      jobId: job.id,
+      fileHash,
+      clerkUserId,
+      pageCount,
+      sourceChunks,
+    });
+
+    if (!ocrExtraction.result.mcqs.length) {
+      return failExtraction({
+        jobId: job.id,
+        reason: "selectable_text_found_but_no_questions",
+        ctx: runCtx,
+        overrides: {
+          error: "Mistral OCR read the file, but no numbered questions were detected.",
+          hint: "Use a file with clearly numbered question blocks.",
+        },
+      });
+    }
+
+    const normalized = normalizeResult(ocrExtraction.result);
+    await recordPageExtractionAudits({
+      jobId: job.id,
+      fileHash,
+      pageCount,
+      sourceChunks,
+      result: normalized,
+      retryCount: 0,
+    });
+
+    const finalized = await finalizeExtraction({
+      apiKey,
+      cacheKey,
+      fileHash,
+      fileName,
+      extractionMode,
+      clerkUserId,
+      pageCount,
+      normalized,
+      sourceChunks,
+      jobId: job.id,
+      runCtx,
+    });
+
+    return { ...finalized, jobId: job.id };
+  }
 
   if (isPdf) {
     let probe = await probePdfSelectableText(arrayBuffer);
@@ -1927,7 +2039,7 @@ async function finalizeExtraction(args: {
 }): Promise<ExtractionSuccessResponse> {
   let result = args.normalized;
 
-  if (shouldAutoFixGrammar()) {
+  if (shouldAutoFixGrammar() && args.apiKey) {
     result = await applyGrammarFix(args.apiKey, result, {
       clerkUserId: args.clerkUserId,
       feature: "grammar",

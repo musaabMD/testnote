@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resumePersistedExtractionJob } from "@/lib/process-pdf-upload";
 import {
+  FAILED_UPLOAD_RECORD_RETENTION_MS,
   getUploadProgressDetail,
   getUploadProgressLabel,
   getUploadProgressPercent,
@@ -58,6 +59,24 @@ export function UploadProgressToast() {
         pollingRef.current.delete(record.id);
       });
     }
+  }, [records]);
+
+  useEffect(() => {
+    const failedRecords = records.filter((record) => record.status === "failed");
+    if (!failedRecords.length) return;
+
+    const timeouts = failedRecords.map((record) =>
+      window.setTimeout(
+        () => removeUploadProgressRecord(record.id),
+        Math.max(0, FAILED_UPLOAD_RECORD_RETENTION_MS - (Date.now() - record.updatedAt)),
+      ),
+    );
+
+    return () => {
+      for (const timeout of timeouts) {
+        window.clearTimeout(timeout);
+      }
+    };
   }, [records]);
 
   const visible = useMemo(

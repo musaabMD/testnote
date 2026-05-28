@@ -2,6 +2,7 @@
 
 export const UPLOAD_PROGRESS_STORAGE_KEY = "drnote:upload-progress";
 export const UPLOAD_PROGRESS_UPDATED_EVENT = "drnote:upload-progress-updated";
+export const FAILED_UPLOAD_RECORD_RETENTION_MS = 30_000;
 
 export type UploadProgressStatus =
   | "uploading"
@@ -16,6 +17,7 @@ export type UploadProgressPhase =
   | "counting_pages"
   | "uploading_file"
   | "queued"
+  | "checking_status"
   | "reading_pages"
   | "extracting_questions"
   | "saving_results";
@@ -63,6 +65,7 @@ export function getUploadProgressLabel(record: UploadProgressRecord) {
   if (record.status === "queued" || record.phase === "queued") {
     return "Queued in the background";
   }
+  if (record.phase === "checking_status") return "Checking extraction status";
   if (record.phase === "checking_file") return "Checking file";
   if (record.phase === "counting_pages") return "Counting pages";
   if (record.phase === "uploading_file") return "Uploading file";
@@ -87,6 +90,10 @@ export function getUploadProgressDetail(record: UploadProgressRecord) {
     : null;
 
   if (record.jobId) {
+    if (record.phase === "checking_status") {
+      return "Connection hiccup. Retrying the status check.";
+    }
+
     return pageText
       ? `${pageText} accepted. Safe to leave this page.`
       : "Accepted. Safe to leave this page.";
@@ -112,6 +119,13 @@ function emitUploadProgressUpdated() {
   window.dispatchEvent(new CustomEvent(UPLOAD_PROGRESS_UPDATED_EVENT));
 }
 
+function isStaleFailedRecord(record: UploadProgressRecord, now = Date.now()) {
+  return (
+    record.status === "failed" &&
+    now - record.updatedAt > FAILED_UPLOAD_RECORD_RETENTION_MS
+  );
+}
+
 export function loadUploadProgressRecords(): UploadProgressRecord[] {
   if (typeof window === "undefined") return [];
 
@@ -123,6 +137,7 @@ export function loadUploadProgressRecords(): UploadProgressRecord[] {
       ? parsed
           .filter(isUploadProgressRecord)
           .filter((record) => record.status !== "ready")
+          .filter((record) => !isStaleFailedRecord(record))
           .sort((a, b) => b.updatedAt - a.updatedAt)
       : [];
   } catch {
@@ -136,6 +151,7 @@ function saveUploadProgressRecords(records: UploadProgressRecord[]) {
 
   const next = records
     .filter((record) => record.status !== "ready")
+    .filter((record) => !isStaleFailedRecord(record))
     .slice(0, 8);
   window.localStorage.setItem(UPLOAD_PROGRESS_STORAGE_KEY, JSON.stringify(next));
   emitUploadProgressUpdated();

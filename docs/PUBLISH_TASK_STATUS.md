@@ -31,9 +31,9 @@ Legend:
 16. ✅ Use R2/Convex for original uploaded files for now: production R2 credentials on Convex + Vercel; production deploy live. Upload endpoint returns `202 queued` (verified 2026-05-26).
 17. ✅ Add durable source preview image storage: server-generated source page previews are stored and read through Convex `questionSources`; R2/webp optimization is still deferred.
 18. ✅ Store Convex metadata for source files and extraction/cache records: schema has `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `extractionJobs`, and `questionSources`.
-19. ⚠️ Move extraction to durable background jobs: upload returns queued job + Next `after()` worker; Convex cron `recoverStaleExtractionJobsInternal` every 2 min marks stuck jobs failed with `worker_timeout`. Full `@convex-dev/workflow` migration still deferred.
+19. ✅ Move extraction to durable background jobs: upload persists the source file before queueing, returns queued job status, triggers `/api/pdf/mcqs/worker`, and Convex Cron calls the worker every 2 minutes for recovery. Full `@convex-dev/workflow` migration remains optional hardening.
 20. ✅ Add upload job status and polling UI: `/api/pdf/mcqs` returns `202` with `jobId`, `/api/pdf/mcqs/jobs/[jobId]` exposes status/result, and the client polls.
-21. ⚠️ Prevent large upload timeout/stuck states: improved by queued response/polling + stale-job cron recovery; not fully solved without durable workflow + automatic retry.
+21. ✅ Prevent large upload timeout/stuck states: uploads fail before queueing if the source file cannot be persisted for the worker, so a missing source no longer creates a stuck extraction job.
 22. ❌ Complete manual source-browser QA with real PDFs: not done.
 23. ❌ Verify source modal does not hang, crash, or loop 404s: not done with real PDFs.
 24. ✅ Resolve `pdfjs-dist` production build warnings: latest `npm run build` passes without pdfjs warnings.

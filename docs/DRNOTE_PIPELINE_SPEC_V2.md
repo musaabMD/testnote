@@ -6,10 +6,10 @@ For agents: this is the migration target for TestNote extraction. Follow the pha
 
 | Area | Current State | Migration Rule |
 |---|---|---|
-| AI provider | OpenRouter for extraction, chat, OCR, and grammar | Keep OpenRouter. Do not add direct Gemini. |
+| AI provider | Mistral OCR for upload extraction; OpenRouter for chat, summaries, grammar, and assistant flows | Do not use OpenRouter as the primary upload extraction path. Do not add direct Gemini. |
 | Gemini SDK | Not installed | Do not install `@google/generative-ai` or `@google/genai`. |
 | OpenRouter calls | Existing raw `fetch` wrappers and usage tracking | Any new SDK/client path must preserve `trackedOpenRouter` usage/cost logging. |
-| Extraction runtime | Next route with `after()` and `maxDuration = 300` | Move heavy extraction to a long-running worker. Keep the route thin. |
+| Extraction runtime | Thin Next upload route plus secured worker endpoint and Convex Cron recovery | Continue moving orchestration toward Convex Workflow/Workpool only if retry/observability needs exceed the current worker path. |
 | Cache | `fileHash + extractionMode + extractionModel + appExtractionVersion` | Extend early with prompt/schema/render versions. Do not replace blindly. |
 | Resend | Already configured in `convex/emails.ts` | Wire job completion/failure emails. Do not rebuild Resend setup. |
 | File types | PDF/images/text/markdown/RTF accepted; DOCX/PPTX rejected | New worker handles PDF first. Do not add DOCX/PPTX in Phase 1 or 2. |
@@ -25,9 +25,11 @@ Never silently drop a detected question. Every question-like block must become o
 3. a `needs_review` question,
 4. a regex fallback question marked `needs_review`.
 
-## OpenRouter-Only AI
+## Provider Boundary
 
-Use OpenRouter for all AI calls. Vision extraction should send a rendered page image plus extracted text.
+Use Mistral OCR for upload extraction. The extraction path should OCR the uploaded PDF/image and deterministically parse source-backed questions from OCR text before considering any legacy fallback.
+
+Use OpenRouter for chat, summaries, grammar cleanup, and assistant flows. It should not be the normal path for extracting uploaded questions.
 
 Preferred image input order:
 

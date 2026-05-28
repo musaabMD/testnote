@@ -1,6 +1,6 @@
 # Launch Status Report
 
-**Generated:** 2026-05-27  
+**Generated:** 2026-05-28  
 **Site:** https://www.drnote.co  
 **Verdict:** Code is largely ready; paid launch blocked by external config + live verification.
 
@@ -12,16 +12,20 @@ The repository contains the full payment and quota pipeline: Clerk Billing UI, w
 
 **Paid launch readiness: ~45%** (unchanged — trust, not features, is the gap).
 
+**2026-05-28 verification update:** local gates are green and the production worker route is live. Production is still not paid-launch ready because real Clerk Billing lifecycle events, authenticated deployed duplicate extraction, deployed quota smoke tests, and OpenRouter hard caps are not proven.
+
 **This pass added:**
 
 - Quota/billing/rate-limit error classification (`src/lib/quota-errors.ts`)
 - Upgrade/manage-billing banners on upload surfaces (`QuotaLimitBanner`)
 - Tutor chat guidance when limits hit
 - Real current-period usage visibility in the dashboard usage popover
-- Convex Cron worker recovery for queued/stale extraction jobs (`/api/pdf/mcqs/worker`)
+- Durable worker-first extraction for queued jobs (`/api/pdf/mcqs/worker`)
 - Production `CRON_SECRET` and `CLERK_WEBHOOK_SIGNING_SECRET` presence verified through Vercel CLI
+- Production `CLERK_BILLING_*_PLAN` slug env vars added explicitly for starter/pro/max/teams
 - Source QA fixture matrix re-run: `npm run test:source-qa-manual` passed 19/19
 - Internal cost report re-run and returned quota/rate-limit/duplicate/source signals
+- Production worker route checked: `https://www.drnote.co/api/pdf/mcqs/worker` returns `401` without auth and matches the worker route
 - Ordered launch-day runbook (`docs/LAUNCH_DAY_RUNBOOK.md`)
 - Unit tests: `npm run test:quota-errors`
 
@@ -45,7 +49,7 @@ Treat every ⚠️ in P0 billing/quota as ❌ until production proof.
 
 | # | Status | What’s left |
 |---|--------|-------------|
-| 2–5 | ⚠️ | **Clerk Billing → Convex not production-verified.** Code: `/api/webhooks/clerk`, `syncClerkBillingPlanToConvex`, `parseClerkBillingWebhook`. Still need: `CLERK_WEBHOOK_SIGNING_SECRET` on Vercel, webhook URL `https://www.drnote.co/api/webhooks/clerk`, real subscribe/cancel/past-due test, Clerk plan slugs/prices aligned with `convex/planLimits.ts` + `CLERK_BILLING_*_PLAN` env vars. |
+| 2–5 | ⚠️ | **Clerk Billing → Convex not production-verified.** Code: `/api/webhooks/clerk`, `syncClerkBillingPlanToConvex`, `parseClerkBillingWebhook`. Vercel production has `CLERK_WEBHOOK_SIGNING_SECRET` and explicit `CLERK_BILLING_*_PLAN` slugs. Still need: Clerk Dashboard webhook URL `https://www.drnote.co/api/webhooks/clerk`, real subscribe/cancel/past-due test, and actual Clerk plan prices aligned with `convex/planLimits.ts`. |
 | 7 | ❌ | **OpenRouter hard spend caps** — OpenRouter dashboard only, not in repo. |
 | 8 | ⚠️ | **Duplicate upload = one paid call** — last run hit 429; re-run `npm run test:deployed-duplicate-extraction` after cooldown with auth. |
 | 9 | ✅ | Convex-backed rate limits verified live (429 on `/api/pdf/mcqs`). |
@@ -70,7 +74,7 @@ Treat every ⚠️ in P0 billing/quota as ❌ until production proof.
 
 | # | Status | What’s left |
 |---|--------|-------------|
-| 19, 21 | ⚠️ | Extraction still uses Next `after()` for the initial path, but a secured Convex Cron worker now calls a recovery endpoint that claims queued/stale Convex jobs and reruns extraction from persisted source files. Large uploads can still feel stuck if the source file was not persisted before worker recovery. |
+| 19, 21 | ✅ | Current code requires source persistence before queueing, no longer uses Next `after()` as the primary path, triggers the secured worker endpoint, and the production worker route is live. |
 | 22–23 | ❌ | Manual PDF QA — source browser + modal (hang/404 loops). |
 | 28–31 | ❌ | Deployed quota enforcement — code + unit tests exist; no live proof for monthly AI/pages/files/chat, active jobs, max pages/file, max file size. |
 
@@ -104,7 +108,7 @@ All 10 P3 items ✅. No open polish blockers.
 | Risk | Detail | Action |
 |------|--------|--------|
 | Convex deployment naming | Vercel `NEXT_PUBLIC_CONVEX_URL` → `blessed-fish-200` (dev label) vs `vivid-fly-266` (prod label) | Reconcile before first sale |
-| Plan slug confusion | `max` + `teams` both map to Convex `school` | OK short-term; document for support |
+| Plan slug confusion | Production env now explicitly maps `max` + `teams` to Convex `school` | OK short-term; verify actual Clerk Dashboard prices before launch |
 | `QUOTA_ENFORCEMENT_ENABLED` | If false in prod, limits disabled | Confirm `true` on Vercel |
 | Stripe portal vs Clerk Billing | `convex/billing.ts` has Stripe portal; app uses Clerk Billing on `/pricing` | Manage subs via Clerk PricingTable / UserButton, not Stripe portal |
 
@@ -126,9 +130,11 @@ All 10 P3 items ✅. No open polish blockers.
 
 Dashboard usage now reads `api.users.getMyUsageDashboard`, which uses Convex `usagePeriods` for current-month uploads, pages, chat messages, and remaining credits.
 
-### 2b. Durable extraction worker recovery ✅ / ⚠️
+### 2b. Durable extraction worker path ✅
 
-Convex Cron calls `/api/pdf/mcqs/worker` every two minutes through `EXTRACTION_WORKER_URL`. The worker is secured by `CRON_SECRET`/`EXTRACTION_STORAGE_SECRET`, claims queued/stale Convex extraction jobs via `claimNextWorkerExtractionJob`, downloads the persisted source file, and runs the existing extraction engine. This is a recovery worker, not a full migration away from the upload route's Next `after()` path.
+`/api/pdf/mcqs` now persists the uploaded source file before queueing a job. If source persistence fails, the route fails before creating a stuck job. Duplicate uploads check for an active matching job and return `inFlightHit` with the existing job id. The secured worker is triggered after queueing, and Convex Cron calls `/api/pdf/mcqs/worker` every two minutes through `EXTRACTION_WORKER_URL` to recover queued/stale jobs.
+
+Production route check: unauthenticated `https://www.drnote.co/api/pdf/mcqs/worker` returns `401` and Vercel reports `x-matched-path: /api/pdf/mcqs/worker`.
 
 ### 3. Clerk customer portal ❌ (verify manually)
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { splitChunksIntoBatches } from "../chunk-batch.server.ts";
 import { coercePdfMcqResult } from "../pdf-mcqs.ts";
+import { extractMcqsFromMistralOcrPages } from "../ocr-mcq-extraction.server.ts";
 import type { SourceChunk } from "../highlightable-source.ts";
 
 describe("source-first model output coercion", () => {
@@ -43,6 +44,55 @@ describe("source-first model output coercion", () => {
     assert.equal(result.mcqs[0]?.exactQuote, "A 35-year-old woman with a leiomyoma");
     assert.equal(result.mcqs[0]?.correctAnswer, "B");
     assert.equal(result.mcqs[0]?.answer, "Correct the anemia");
+  });
+});
+
+describe("Mistral OCR source-first extraction", () => {
+  it("extracts numbered OCR questions without an OpenRouter model response", () => {
+    const { result, sourceChunks } = extractMcqsFromMistralOcrPages({
+      fileHash: "file1",
+      fileName: "Recall.pdf",
+      pages: [
+        {
+          index: 0,
+          markdown: `1. Which organ produces insulin?
+A. Liver
+B. Pancreas (correct)
+C. Kidney
+D. Spleen
+
+2. Patient with occupational hearing loss. What frequency is affected?
+A. 1KHz
+B. 2KHz
+C. 4KHz`,
+        },
+      ],
+    });
+
+    assert.equal(result.mcqs.length, 2);
+    assert.equal(result.mcqs[0]?.questionNumber, 1);
+    assert.equal(result.mcqs[0]?.correctAnswer, "B");
+    assert.equal(result.mcqs[1]?.sourcePage, 1);
+    assert.deepEqual(result.mcqs[1]?.sourceChunkIds, ["file1-ocr-p1-q2"]);
+    assert.equal(sourceChunks.length, 2);
+  });
+
+  it("normalizes Arabic-Indic question numbers from OCR text", () => {
+    const { result } = extractMcqsFromMistralOcrPages({
+      fileHash: "file2",
+      fileName: "Arabic.pdf",
+      pages: [
+        {
+          index: 0,
+          markdown: "‫‪١٥٠.‬‬ Q\n‫‪١٥١.‬‬ Case scenario of a worker in a plastic factory",
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      result.mcqs.map((mcq) => mcq.questionNumber),
+      [150, 151],
+    );
   });
 });
 

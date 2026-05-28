@@ -9,8 +9,8 @@ export const processStudyFile = defineWorkflow(components.workflow, {
     fileName: v.string(),
   },
 }).handler(async () => {
-  // Extraction runs in Next.js after() today. Durable recovery is handled by
-  // Convex cron recoverStaleExtractionJobsInternal every 2 minutes.
+  // Extraction currently runs through the secured Next worker endpoint. Convex
+  // Workflow remains available for a later full orchestration migration.
   return null;
 });
 

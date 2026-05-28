@@ -58,6 +58,27 @@ type ExtractionJobPollResponse = {
   result?: ExtractionApiResponse;
 };
 
+type ExtractionUploadResponse = (
+  | ExtractionApiResponse
+  | ExtractionJobStartResponse
+) & {
+  error?: string;
+  hint?: string;
+  failureReason?: string;
+};
+
+class ExtractionStatusCheckError extends Error {
+  readonly retryable: boolean;
+  readonly status?: number;
+
+  constructor(message: string, options?: { retryable?: boolean; status?: number }) {
+    super(message);
+    this.name = "ExtractionStatusCheckError";
+    this.retryable = options?.retryable ?? false;
+    this.status = options?.status;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -67,6 +88,71 @@ function extractionErrorMessage(payload: { error?: string; hint?: string }) {
   return payload.hint ? `${message} ${payload.hint}` : message;
 }
 
+async function readExtractionUploadResponse(
+  response: Response,
+): Promise<ExtractionUploadResponse | null> {
+  const text = await response.text().catch(() => "");
+  if (!text.trim()) return null;
+
+  try {
+    return JSON.parse(text) as ExtractionUploadResponse;
+  } catch {
+    return {
+      error: response.ok
+        ? "Upload response was not valid JSON."
+        : text.slice(0, 300),
+      failureReason: "invalid_server_response",
+    } as ExtractionUploadResponse;
+  }
+}
+
+function isRetryableStatusCheck(status: number) {
+  return (
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504
+  );
+}
+
+async function fetchExtractionJobStatus(
+  jobId: string,
+): Promise<ExtractionJobPollResponse> {
+  let response: Response;
+
+  try {
+    response = await fetch(`/api/pdf/mcqs/jobs/${encodeURIComponent(jobId)}`, {
+      cache: "no-store",
+    });
+  } catch {
+    throw new ExtractionStatusCheckError(
+      "Could not reach extraction status. Retrying...",
+      { retryable: true },
+    );
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | ExtractionJobPollResponse
+    | null;
+
+  if (!response.ok || !payload) {
+    const message =
+      payload && "error" in payload && payload.error
+        ? extractionErrorMessage(payload)
+        : "Could not check extraction status. Retrying...";
+    throw new ExtractionStatusCheckError(message, {
+      retryable: isRetryableStatusCheck(response.status),
+      status: response.status,
+    });
+  }
+
+  return payload;
+}
+
 export async function pollExtractionJob(
   jobId: string,
   options?: { uploadProgressId?: string },
@@ -74,19 +160,29 @@ export async function pollExtractionJob(
   const startedAt = Date.now();
   const timeoutMs = 12 * 60 * 1000;
   let delayMs = 1000;
+  let statusCheckFailures = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     await sleep(delayMs);
-    const response = await fetch(
-      `/api/pdf/mcqs/jobs/${encodeURIComponent(jobId)}`,
-      { cache: "no-store" },
-    );
-    const payload = (await response.json().catch(() => null)) as
-      | ExtractionJobPollResponse
-      | null;
 
-    if (!response.ok || !payload) {
-      throw new Error("Could not check extraction status. Try again.");
+    let payload: ExtractionJobPollResponse;
+    try {
+      payload = await fetchExtractionJobStatus(jobId);
+      statusCheckFailures = 0;
+    } catch (error) {
+      if (error instanceof ExtractionStatusCheckError && error.retryable) {
+        statusCheckFailures += 1;
+        if (options?.uploadProgressId) {
+          patchUploadProgressRecord(options.uploadProgressId, {
+            status: "processing",
+            phase: "checking_status",
+          });
+        }
+        delayMs = Math.min(10_000, Math.round(delayMs * 1.5));
+        continue;
+      }
+
+      throw error;
     }
 
     if (payload.status === "failed") {
@@ -129,10 +225,13 @@ export async function pollExtractionJob(
       });
     }
 
-    delayMs = Math.min(3000, Math.round(delayMs * 1.25));
+    delayMs =
+      statusCheckFailures > 0 ? delayMs : Math.min(3000, Math.round(delayMs * 1.25));
   }
 
-  throw new Error("Extraction is taking longer than expected. Try again shortly.");
+  throw new Error(
+    "Extraction is taking longer than expected. It may still finish in the background.",
+  );
 }
 
 async function getPageCountForFile(file: File): Promise<number> {
@@ -332,9 +431,23 @@ export async function processPdfUploads(
         responsePromise,
       ]);
 
-      const payload = (await response.json()) as
-        | ExtractionApiResponse
-        | ExtractionJobStartResponse;
+      const payload = await readExtractionUploadResponse(response);
+
+      if (!payload) {
+        const message = response.ok
+          ? "Upload succeeded but the server returned an empty response."
+          : "Upload failed temporarily. Please try again.";
+        if (!response.ok) {
+          failureTracked = true;
+          captureConversionEvent("first_extraction_failed", {
+            failure_reason: `http_${response.status}_empty_response`,
+            file_type: file.type || inferFileExtension(file.name, file.type),
+            file_size_mb: fileSizeMb(file),
+            page_count: pageCount,
+          });
+        }
+        throw new Error(message);
+      }
 
       if (!response.ok) {
         failureTracked = true;

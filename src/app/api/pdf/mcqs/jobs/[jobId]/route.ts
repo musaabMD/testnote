@@ -1,6 +1,8 @@
 import {
   getExtractionJob,
   getPersistedPdfExtractionRecord,
+  updateExtractionJob,
+  type ExtractionJobRecord,
 } from "@/lib/extraction-job-store.server";
 import { isPdfMcqResult } from "@/lib/pdf-mcqs";
 import { getQuotaSubject } from "@/lib/request-user.server";
@@ -43,44 +45,73 @@ export async function GET(
       failureReason: job.failureReason,
     };
 
+    const recovered = await recoverReadyResultFromPersistedRecord(job);
+    if (recovered) {
+      return Response.json({
+        ...base,
+        status: "ready",
+        progressPagesProcessed: job.totalPages,
+        error: undefined,
+        failureReason: undefined,
+        result: recovered,
+      });
+    }
+
     if (job.status !== "ready") {
       return Response.json(base);
     }
 
-    const record = await getPersistedPdfExtractionRecord({
-      clerkUserId: job.clerkUserId,
-      fileHash: job.fileHash,
-    });
-
-    const result = {
-      title: record?.title,
-      summary: record?.summary,
-      mcqs: record?.mcqs,
-    };
-
-    if (!record || !isPdfMcqResult(result)) {
-      return Response.json({
-        ...base,
-        status: "processing",
-        error: "Extraction result is still being finalized.",
-      });
-    }
-
     return Response.json({
       ...base,
-      result: {
-        title: record.title,
-        summary: record.summary,
-        mcqs: record.mcqs,
-        fileHash: record.fileHash,
-        fileName: record.fileName,
-        pageCount: record.pageCount,
-        sourceChunks: record.sourceChunks,
-      },
+      status: "processing",
+      error: "Extraction result is still being finalized.",
     });
   } catch (error) {
     const configError = getStorageConfigErrorResponse(error);
     if (configError) return configError;
     throw error;
   }
+}
+
+async function recoverReadyResultFromPersistedRecord(job: ExtractionJobRecord) {
+  const shouldCheckPersistedResult =
+    job.status === "ready" ||
+    (job.totalPages > 0 && job.progressPagesProcessed >= job.totalPages);
+
+  if (!shouldCheckPersistedResult) return null;
+
+  const record = await getPersistedPdfExtractionRecord({
+    clerkUserId: job.clerkUserId,
+    fileHash: job.fileHash,
+  });
+
+  const result = {
+    title: record?.title,
+    summary: record?.summary,
+    mcqs: record?.mcqs,
+  };
+
+  if (!record || !isPdfMcqResult(result)) return null;
+
+  if (job.status !== "ready") {
+    await updateExtractionJob(job.id, {
+      status: "ready",
+      progressPagesProcessed: job.totalPages,
+      totalPages: job.totalPages,
+    }).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[upload] recovered completed extraction job locally", error);
+      }
+    });
+  }
+
+  return {
+    title: record.title,
+    summary: record.summary,
+    mcqs: record.mcqs,
+    fileHash: record.fileHash,
+    fileName: record.fileName,
+    pageCount: record.pageCount,
+    sourceChunks: record.sourceChunks,
+  };
 }

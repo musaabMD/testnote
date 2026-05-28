@@ -10,6 +10,7 @@ export type ExtractionFailureReason =
   | "model_invalid_schema"
   | "model_empty_mcqs"
   | "model_timeout"
+  | "mistral_ocr_error"
   | "openrouter_error"
   | "rate_limited"
   | "file_too_large"
@@ -67,6 +68,10 @@ const FAILURE_MESSAGES: Record<
   model_timeout: {
     error: "Extraction timed out. Please try again.",
   },
+  mistral_ocr_error: {
+    error: "OCR extraction failed temporarily. Please try again.",
+    hint: "Mistral OCR could not read this file right now.",
+  },
   openrouter_error: {
     error: "The AI service returned an error. Please try again.",
   },
@@ -114,6 +119,7 @@ export function isTransientFailureReason(reason: ExtractionFailureReason): boole
     reason === "model_invalid_json" ||
     reason === "model_invalid_schema" ||
     reason === "model_timeout" ||
+    reason === "mistral_ocr_error" ||
     reason === "worker_timeout" ||
     reason === "unknown_transient_error" ||
     reason === "openrouter_error"
@@ -126,6 +132,7 @@ export function isUpstreamFailureReason(reason: ExtractionFailureReason): boolea
     reason === "model_invalid_json" ||
     reason === "model_invalid_schema" ||
     reason === "model_timeout" ||
+    reason === "mistral_ocr_error" ||
     reason === "pdf_text_probe_failed" ||
     reason === "chunk_extraction_failed" ||
     reason === "worker_timeout" ||

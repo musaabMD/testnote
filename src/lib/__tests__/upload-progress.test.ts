@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
+  FAILED_UPLOAD_RECORD_RETENTION_MS,
   getUploadProgressDetail,
   getUploadProgressLabel,
   getUploadProgressPercent,
@@ -102,5 +103,49 @@ describe("upload progress", () => {
       "12 pages accepted. Safe to leave this page.",
     );
     assert.equal(getUploadProgressPercent(record), 22);
+  });
+
+  it("describes transient status-check failures as retrying", () => {
+    const now = Date.now();
+    const record = {
+      id: "upload-3",
+      fileName: "promotion.pdf",
+      fileSize: 155_000,
+      status: "processing" as const,
+      phase: "checking_status" as const,
+      createdAt: now,
+      updatedAt: now,
+      jobId: "job-456",
+      totalPages: 22,
+      progressPagesProcessed: 22,
+    };
+
+    assert.equal(getUploadProgressLabel(record), "Checking extraction status");
+    assert.equal(
+      getUploadProgressDetail(record),
+      "Connection hiccup. Retrying the status check.",
+    );
+  });
+
+  it("hides stale failed uploads instead of keeping the error toast forever", () => {
+    const storage = installBrowserStorage();
+
+    const now = Date.now();
+    storage.set(
+      UPLOAD_PROGRESS_STORAGE_KEY,
+      JSON.stringify([
+        {
+          id: "upload-4",
+          fileName: "stale-error.pdf",
+          fileSize: 155_000,
+          status: "failed",
+          createdAt: now - FAILED_UPLOAD_RECORD_RETENTION_MS - 1_000,
+          updatedAt: now - FAILED_UPLOAD_RECORD_RETENTION_MS - 1_000,
+          error: "Upload failed temporarily. Please try again.",
+        },
+      ]),
+    );
+
+    assert.deepEqual(loadUploadProgressRecords(), []);
   });
 });

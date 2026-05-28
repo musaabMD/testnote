@@ -29,8 +29,8 @@ Vercel         → Next.js app + API routes
 User uploads file
   → Clerk identifies user
   → Convex checks plan + quota + reserves estimated cost
-  → `/api/pdf/mcqs` creates an extraction job
-  → Next `after()` continues extraction work after the 202 response
+  → `/api/pdf/mcqs` persists the source file and creates/reuses an extraction job
+  → `/api/pdf/mcqs/worker` claims queued jobs; Convex Cron retries queued/stale work
   → trackedOpenRouterCall records actual tokens/cost in Convex
   → Clerk Billing plan state maps to Convex plan limits
   → Convex blocks user when monthly AI budget reached
@@ -47,7 +47,7 @@ User uploads file
 | Subscription truth | Clerk Billing | `syncClerkBillingPlanToConvex()` maps Clerk plan slugs to Convex limits |
 | Real-time quota | Convex `usagePeriods` + `quotaReservations` | ✅ Implemented (enable with env) |
 | AI cost tracking | Convex `aiUsageEvents` + OpenRouter `usage` | ✅ `trackedOpenRouterFetch` on extract + chat |
-| Background jobs | Durable worker/queue | `/api/pdf/mcqs` job row + Next `after()` |
+| Background jobs | Durable worker/queue | `/api/pdf/mcqs` job row + secured worker endpoint + Convex Cron |
 | File storage | Convex/R2 storage | Convex source-file storage for signed-in users, browser cache fallback |
 | Rate limits | Convex token buckets | In-memory API limiter + Convex when deployed |
 | App hosting | Vercel | Vercel |

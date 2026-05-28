@@ -64,7 +64,7 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [x] Convex distributed extraction claim exists.
 [x] Full-file multimodal fallback is disabled by default.
 [x] OCR route is disabled by default outside explicit env.
-[~] Extraction returns queued status and polling now, but still runs through Next after() rather than a durable background worker.
+[x] Extraction returns queued status and polling, persists source before queueing, and runs through the secured durable worker path instead of Next after().
 [x] DOC/DOCX/PPT/PPTX rejection is shared across UI and server upload paths.
 ```
 

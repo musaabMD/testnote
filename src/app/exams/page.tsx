@@ -15,7 +15,9 @@ export default function ExamsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [librarySlugs, setLibrarySlugs] = useState<string[]>(loadExamLibrary);
   const [notice, setNotice] = useState("");
-  const { exams, categories, isLoading } = useExamCatalog();
+  const { exams, categories, isLoading } = useExamCatalog({
+    withFilesOnly: true,
+  });
 
   const filteredExams = useMemo(() => {
     const source = exams ?? [];

@@ -32,7 +32,7 @@ Improve efficiency across:
 
 - App framework: Next.js 16.2.6 App Router, React 19.2.4.
 - Backend/state: Convex with R2, workflow, RAG, rate limiter, Stripe, Resend, PostHog.
-- Upload route: `src/app/api/pdf/mcqs/route.ts` accepts multipart files, reads the full file into memory, hashes it, counts pages, creates an extraction job, stores the source file, then schedules extraction with `after()`.
+- Upload route: `src/app/api/pdf/mcqs/route.ts` accepts multipart files, reads the full file into memory, hashes it, counts pages, persists the source file, reuses an active duplicate job when present, then queues durable worker extraction.
 - Worker route: `src/app/api/pdf/mcqs/worker/route.ts` claims queued jobs and processes source files from storage.
 - Client upload flow: `src/lib/process-pdf-upload.ts` uploads one supported file at a time, polls `/api/pdf/mcqs/jobs/[jobId]`, then saves local queue state and indexes RAG chunks.
 - Existing measurement scripts:
@@ -106,15 +106,14 @@ Correction direction:
 - Keep the current server upload path as a small-file fallback until direct upload is proven.
 - Measure time-to-queued and server memory before removing the fallback.
 
-### 2. Background extraction is split between `after()` and worker cron
+### 2. Background extraction runs through the worker path
 
-`after()` is useful for post-response work, but extraction can run for long periods and has a configured route duration. The worker route already supports claiming queued jobs from storage.
+The worker route claims queued jobs from storage and Convex Cron calls it every two minutes for recovery. The upload route no longer uses Next `after()` as the primary extraction path.
 
 Correction direction:
 
 - Use the request route primarily for validation and enqueueing.
 - Let the worker path process durable jobs.
-- Keep `after()` only for small jobs if metrics prove it improves perceived latency without increasing failures.
 - Add stale-job repair and retry rules based on `status` and `updatedAt`.
 
 ### 3. Client upload processes files serially
@@ -209,7 +208,7 @@ Risk:
 ### Phase 3: Durable Extraction Pipeline
 
 - Make the durable worker the primary extraction path.
-- Decide whether `after()` remains as an optimization for small files or is removed for consistency.
+- Decide whether Convex Workflow/Workpool should replace the current secured worker endpoint for deeper orchestration.
 - Add retry policy by `failureReason`:
   - Retry transient storage/network/model errors.
   - Do not retry quota, unsupported type, or validation errors.

@@ -47,6 +47,10 @@ export function isMistralOcrAvailable(): boolean {
   return Boolean(process.env.MISTRAL_OCR_API_KEY);
 }
 
+export function getMistralOcrModel(): string {
+  return process.env.MISTRAL_OCR_MODEL ?? "mistral-ocr-latest";
+}
+
 async function readOcrCache(fileHash: string): Promise<MistralOcrResult | null> {
   if (!isDevelopmentStorageAllowed()) return null;
   try {
@@ -74,7 +78,9 @@ async function callMistralOcrApi(
   const apiKey = process.env.MISTRAL_OCR_API_KEY;
   if (!apiKey) throw new Error("MISTRAL_OCR_API_KEY is not set");
 
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
+  const mimeType = inferMimeType(fileName);
+  const dataUrl = `data:${mimeType};base64,${Buffer.from(arrayBuffer).toString("base64")}`;
+  const isImage = mimeType.startsWith("image/");
 
   const response = await fetch("https://api.mistral.ai/v1/ocr", {
     method: "POST",
@@ -83,12 +89,17 @@ async function callMistralOcrApi(
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-ocr-latest",
-      document: {
-        type: "document_base64",
-        document_base64: base64,
-        document_name: fileName,
-      },
+      model: getMistralOcrModel(),
+      document: isImage
+        ? {
+            type: "image_url",
+            image_url: dataUrl,
+          }
+        : {
+            type: "document_url",
+            document_url: dataUrl,
+            document_name: fileName,
+          },
       table_format: "html",
       extract_header: true,
       extract_footer: true,
@@ -108,6 +119,16 @@ async function callMistralOcrApi(
   }
 
   return pages;
+}
+
+function inferMimeType(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".heic")) return "image/heic";
+  return "application/pdf";
 }
 
 /**

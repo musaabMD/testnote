@@ -3,6 +3,9 @@
 export function normalizeLineForParsing(text: string): string {
   return text
     .normalize("NFKC")
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
     .replace(/\u00a0/g, " ")
     .replace(/[\u2013\u2014]/g, "-")
     .trim();

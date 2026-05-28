@@ -4,6 +4,7 @@ import {
   updateExtractionJob,
 } from "@/lib/extraction-job-store.server";
 import { parseExtractionMode } from "@/lib/extraction-config";
+import { isMistralOcrAvailable } from "@/lib/mistral-ocr.server";
 import { runPdfMcqExtraction } from "@/lib/pdf-extraction.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
 import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
@@ -16,9 +17,9 @@ export async function GET(request: Request) {
   if (unauthorized) return unauthorized;
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
+  if (!apiKey && !isMistralOcrAvailable()) {
     return Response.json(
-      { error: "OPENROUTER_API_KEY is not configured on the server." },
+      { error: "MISTRAL_OCR_API_KEY is not configured on the server." },
       { status: 500 },
     );
   }
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
 
       const arrayBuffer = await response.arrayBuffer();
       const result = await runPdfMcqExtraction({
-        apiKey,
+        apiKey: apiKey ?? "",
         fileName: job.fileName ?? source.fileName,
         mimeType: job.mimeType ?? source.mimeType,
         arrayBuffer,

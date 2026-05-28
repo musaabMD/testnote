@@ -7,12 +7,8 @@ import {
 } from "@/lib/extraction-job-store.server";
 import { parseExtractionMode } from "@/lib/extraction-config";
 import { sha256FileBytes } from "@/lib/file-hash.server";
-import { getOpenRouterModel } from "@/lib/openrouter-client";
-import {
-  estimateExtractionCostUsd,
-  estimateUploadExtractionBatchCount,
-  reserveCostUsd,
-} from "@/lib/plan-limits.server";
+import { getMistralOcrModel } from "@/lib/mistral-ocr.server";
+import { estimateOcrCostUsd, reserveCostUsd } from "@/lib/plan-limits.server";
 import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import { getPdfPageCountForUpload } from "@/lib/pdfjs-server.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
@@ -26,12 +22,45 @@ import {
   inferUploadMimeType,
   isSupportedUploadFile,
 } from "@/lib/upload-file-types";
+import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const timing = createServerTiming();
+  try {
+    return await queueExtractionUpload(request, timing);
+  } catch (error) {
+    const configError = getStorageConfigErrorResponse(error);
+    if (configError) {
+      Object.entries(timing.headers()).forEach(([key, value]) => {
+        configError.headers.set(key, value);
+      });
+      return configError;
+    }
+
+    if (process.env.NODE_ENV === "development") {
+      console.error("[upload] extraction upload failed", error);
+    }
+
+    return jsonWithTiming(
+      timing,
+      {
+        error: sanitizeUserFacingError(
+          error instanceof Error ? error.message : undefined,
+        ),
+        failureReason: "upload_server_error",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function queueExtractionUpload(
+  request: Request,
+  timing: ReturnType<typeof createServerTiming>,
+) {
   const rateLimited = await enforceApiRateLimit(request, "pdfExtract");
   if (rateLimited) return rateLimited;
 
@@ -93,13 +122,9 @@ export async function POST(request: Request) {
   );
   const quotaSubject = await getQuotaSubjectDetails(request);
   const clerkUserId = quotaSubject.clerkUserId;
-  const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
+  const model = getMistralOcrModel();
   const estimatedCostUsd = reserveCostUsd(
-    estimateExtractionCostUsd({
-      pageCount,
-      batchCount: estimateUploadExtractionBatchCount(pageCount),
-      model,
-    }),
+    Math.max(1, pageCount) * estimateOcrCostUsd(),
   );
 
   const preflight = await timing.measure("quota_preflight", () =>
@@ -135,6 +160,11 @@ export async function POST(request: Request) {
       extractionMode,
       extractionModel: model,
       clerkUserId,
+    }).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[upload] active job lookup failed", error);
+      }
+      return null;
     }),
   );
 

@@ -66,11 +66,12 @@ EXTRACTION_LOCK_RETRY_COOLDOWN_MS=60000
 
 ## Extraction Flow
 
-1. `POST /api/pdf/mcqs` validates the file, computes hash/page count, creates an `extractionJobs` row, and returns `202` with `jobId`.
-2. The route schedules extraction with Next `after()`.
-3. The client polls `GET /api/pdf/mcqs/jobs/[jobId]`.
-4. Completed jobs return the persisted extraction record with MCQs and source chunks.
-5. Failed jobs return `failureReason` and user-facing error text.
+1. `POST /api/pdf/mcqs` validates the file, computes hash/page count, and persists the original source file.
+2. The route reuses an active matching job when one exists, otherwise creates an `extractionJobs` row and returns `202` with `jobId`.
+3. The secured worker endpoint `/api/pdf/mcqs/worker` claims queued jobs, and Convex Cron calls it every two minutes for recovery.
+4. The client polls `GET /api/pdf/mcqs/jobs/[jobId]`.
+5. Completed jobs return the persisted extraction record with MCQs and source chunks.
+6. Failed jobs return `failureReason` and user-facing error text.
 
 Convex tables involved: `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `extractionJobs`, `questionSources`, `usagePeriods`, `aiUsageEvents`, `costLedger`, `quotaReservations`, and `appAuditEvents`.
 

@@ -16,8 +16,8 @@ Set hard credit limits manually in OpenRouter before any paid beta traffic.
 ## AI Runtime Defaults
 
 ```txt
-[ ] OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash-lite
-[ ] OPENROUTER_EXTRACTION_REPAIR_MODEL=google/gemini-2.5-flash
+[ ] MISTRAL_OCR_API_KEY is set.
+[ ] MISTRAL_OCR_MODEL=mistral-ocr-latest
 [ ] OPENROUTER_CHAT_MODEL=google/gemini-2.5-flash
 [ ] OPENROUTER_AUTO_GRAMMAR_FIX=false
 [ ] ENABLE_FULL_FILE_MULTIMODAL_FALLBACK=false

@@ -16,7 +16,7 @@ After this pass, the split is:
 | Extraction cache by file hash | ✅ Convex + dev `.data` | `.data` dev only | — |
 | Production storage guard | ✅ 503 without Convex in prod | `.data` allowed in dev | — |
 | Full-file multimodal fallback | ✅ Disabled by default | Opt-in env only | Premium opt-in |
-| OCR in upload pipeline | ✅ Not called | `/api/pdf/ocr` dev/manual | — |
+| OCR in upload pipeline | ✅ Mistral OCR primary extraction path | `/api/pdf/ocr` remains dev/manual | Improve deterministic review UI for incomplete answers |
 | Rate limits | 🟡 Convex-backed when configured | In-memory fallback for local testing | Keep Convex Rate Limiter required before production |
 | Background extraction | ❌ Sync API | Job records written | Trigger.dev (B-01) |
 | Durable file bytes | ✅ R2 for source originals | IndexedDB optional local cache | R2 source preview images (B-07) |
@@ -57,12 +57,12 @@ Use this section first when resuming work.
 [x] Quota preflight/reservation flow exists when QUOTA_ENFORCEMENT_ENABLED=true.
 [x] Production storage guard prevents silent .data usage without Convex.
 [x] Full-file multimodal fallback is disabled by default.
-[x] OCR is not part of normal upload extraction.
+[x] Mistral OCR is the normal upload extraction path.
 [x] Grammar auto-fix is disabled by default.
 [x] Chunk batching exists for large PDFs.
 [x] Extraction failure reasons separate PDF text/probe/model/schema/quota failures.
-[x] Default env ladder documents Flash-Lite for extraction and Flash for repair/chat.
-[x] Extraction repair calls use OPENROUTER_EXTRACTION_REPAIR_MODEL.
+[x] Default env ladder documents Mistral OCR for extraction and OpenRouter for chat/grammar.
+[x] Legacy OpenRouter extraction fallback remains disabled by default.
 [x] In-process single-flight dedupe exists for rapid duplicate uploads on the same server instance.
 [x] Stable extraction cache-key logging exists.
 [x] Dynamic extraction max_tokens cap exists.
@@ -202,13 +202,13 @@ Each item labels what is temporary vs production-ready. See also [`CONVEX-COMPON
 | Item | Status | Notes |
 |------|--------|-------|
 | Usage ledger + quota preflight | **done** | `usagePeriods`, `aiUsageEvents`, `quotaReservations` |
-| `trackedOpenRouter` on all OpenRouter paths | **done** | extract, chat, grammar, OCR (when enabled) |
+| `trackedOpenRouter` on all OpenRouter paths | **done** | chat, grammar, assistant flows, legacy OCR route when enabled |
 | Cache hit zero-cost event | **done** | See [`USAGE-LEDGER-POLICY.md`](./USAGE-LEDGER-POLICY.md) |
 | Production no silent `.data` | **done** | `assertProductionServerStorage` → 503 |
 | Full-file multimodal fallback off | **done** | `ENABLE_FULL_FILE_MULTIMODAL_FALLBACK=false` |
-| OCR off in upload pipeline | **done** | `/api/pdf/ocr` 403 unless explicit env |
+| Mistral OCR in upload pipeline | **done** | Primary upload extraction path |
 | Convex-backed API rate limits | **partial** | Uses Convex Rate Limiter when configured; in-memory fallback is dev/testing only |
-| Default extraction model ladder | **partial** | `.env.example` sets Flash-Lite extraction + Flash repair/chat; code uses repair model for invalid JSON/schema |
+| Default extraction model ladder | **partial** | `.env.example` sets Mistral OCR for extraction and OpenRouter for chat/grammar |
 | In-flight extraction dedupe | **partial** | In-process single-flight plus Convex distributed job claim exist; deployed verification still needed |
 | Cache-key/cost logging | **partial** | Structured cacheHit/inFlightHit/openRouterCalled and per-extraction cost logs plus internal report exist; richer admin workflow still deferred |
 
@@ -216,12 +216,11 @@ Each item labels what is temporary vs production-ready. See also [`CONVEX-COMPON
 
 ```txt
 [x] Document env ladder:
-    OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash-lite
-    OPENROUTER_EXTRACTION_REPAIR_MODEL=google/gemini-2.5-flash
+    MISTRAL_OCR_MODEL=mistral-ocr-latest
     OPENROUTER_CHAT_MODEL=google/gemini-2.5-flash
     OPENROUTER_AUTO_GRAMMAR_FIX=false
 
-[x] Code repair fallback to use OPENROUTER_EXTRACTION_REPAIR_MODEL only after invalid JSON/schema.
+[x] Upload extraction uses Mistral OCR and deterministic parsing before legacy fallback.
 [x] Add in-process single-flight lock:
     extractionKey = fileHash:extractionMode:extractionModel:appExtractionVersion
 [x] If extractionKey already processing, wait for existing job/result and return inFlightHit=true.
@@ -350,13 +349,14 @@ QUOTA_ENFORCEMENT_ENABLED=true
 # OpenRouter
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=google/gemini-2.5-flash-lite
-OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash-lite
-OPENROUTER_EXTRACTION_REPAIR_MODEL=google/gemini-2.5-flash
-OPENROUTER_EXTRACTION_MAX_TOKENS=2500
 OPENROUTER_CHAT_MODEL=google/gemini-2.5-flash
 OPENROUTER_AUTO_GRAMMAR_FIX=false
 ENABLE_FULL_FILE_MULTIMODAL_FALLBACK=false
 ENABLE_PDF_OCR_ROUTE=false
+
+# Mistral OCR extraction
+MISTRAL_OCR_API_KEY=
+MISTRAL_OCR_MODEL=mistral-ocr-latest
 
 # Clerk Billing (B-03)
 # Configure plan slugs/prices in Clerk Dashboard and verify against `convex/planLimits.ts`.
