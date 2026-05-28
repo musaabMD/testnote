@@ -96,8 +96,11 @@ export default defineSchema({
     pageCount: v.number(),
     title: v.string(),
     summary: v.string(),
-    mcqs: v.any(),
-    sourceChunks: v.any(),
+    mcqs: v.optional(v.any()),
+    sourceChunks: v.optional(v.any()),
+    payloadStorage: v.optional(v.union(v.literal("convex"), v.literal("r2"))),
+    payloadR2Key: v.optional(v.string()),
+    payloadSizeBytes: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_cache_key", [
     "fileHash",
@@ -133,6 +136,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_job_id", ["jobId"])
+    .index("by_status_updated", ["status", "updatedAt"])
     .index("by_file_hash", ["fileHash"])
     .index("by_extraction_key", ["extractionKey"]),
 
@@ -146,8 +150,11 @@ export default defineSchema({
     appExtractionVersion: v.optional(v.string()),
     title: v.string(),
     summary: v.string(),
-    mcqs: v.any(),
-    sourceChunks: v.any(),
+    mcqs: v.optional(v.any()),
+    sourceChunks: v.optional(v.any()),
+    payloadStorage: v.optional(v.union(v.literal("convex"), v.literal("r2"))),
+    payloadR2Key: v.optional(v.string()),
+    payloadSizeBytes: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -394,6 +401,71 @@ export default defineSchema({
     .index("by_user_created", ["userId", "createdAt"])
     .index("by_job", ["jobId"])
     .index("by_file_hash", ["fileHash"]),
+
+  supportThreads: defineTable({
+    clerkUserId: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
+    category: v.union(
+      v.literal("message"),
+      v.literal("bug"),
+      v.literal("feedback"),
+      v.literal("review"),
+      v.literal("suggest_exam"),
+      v.literal("suggest_feature"),
+      v.literal("rating"),
+    ),
+    status: v.union(
+      v.literal("open"),
+      v.literal("in_progress"),
+      v.literal("resolved"),
+    ),
+    priority: v.union(v.literal("normal"), v.literal("high")),
+    rating: v.optional(v.number()),
+    subject: v.string(),
+    initialSummary: v.string(),
+    summary: v.string(),
+    lastMessagePreview: v.string(),
+    initialPathname: v.optional(v.string()),
+    pageUrl: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    messageCount: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+    resolvedBy: v.optional(v.string()),
+  })
+    .index("by_clerk_user_updated", ["clerkUserId", "updatedAt"])
+    .index("by_status_updated", ["status", "updatedAt"])
+    .index("by_updated", ["updatedAt"]),
+
+  supportMessages: defineTable({
+    threadId: v.id("supportThreads"),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("admin"),
+      v.literal("system"),
+    ),
+    body: v.string(),
+    rating: v.optional(v.number()),
+    attachments: v.optional(
+      v.array(
+        v.object({
+          storageId: v.id("_storage"),
+          name: v.string(),
+          mimeType: v.string(),
+          sizeBytes: v.number(),
+        }),
+      ),
+    ),
+    clerkUserId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_thread_created", ["threadId", "createdAt"])
+    .index("by_created", ["createdAt"]),
 
   userProfiles: defineTable({
     clerkUserId: v.string(),

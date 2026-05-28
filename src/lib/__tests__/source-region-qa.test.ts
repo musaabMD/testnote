@@ -11,6 +11,7 @@ import {
   createCssViewport,
   isValidHighlightRegion,
 } from "../pdf-source-region.ts";
+import { mapChunkIdsToMcqRegions } from "../pdf-source-chunks.server.ts";
 import { filterChunksForPage, previewChunkText } from "../source-debug.ts";
 import { validateSourceRegionForImage } from "../source-preview-store.server.ts";
 
@@ -165,6 +166,22 @@ describe("mapQuestionsToSourceChunks", () => {
       0,
     );
     assert.equal(chunk?.id, "chunk_1");
+  });
+
+  it("unions multi-block source references into one highlight", () => {
+    const mcqs = [
+      {
+        questionText: "Male with breast cancer on chemo",
+        sourceChunkIds: ["chunk_1", "chunk_2"],
+      },
+    ];
+
+    mapChunkIdsToMcqRegions(mcqs, chunks);
+
+    assert.equal(mcqs[0]?.sourcePage, 1);
+    assert.equal(mcqs[0]?.sourceRegion?.x, 0.05);
+    assert.equal(mcqs[0]?.sourceRegion?.y, 0.1);
+    assert.ok(Math.abs((mcqs[0]?.sourceRegion?.height ?? 0) - 0.32) < 0.0001);
   });
 });
 

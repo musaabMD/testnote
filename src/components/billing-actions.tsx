@@ -3,6 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 import { SubscriptionDetailsButton, useSubscription } from "@clerk/nextjs/experimental";
 import Link from "next/link";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 
 export function BillingActions() {
   const { isLoaded, isSignedIn } = useUser();
@@ -25,6 +26,12 @@ export function BillingActions() {
       <Link
         href="/pricing"
         className="inline-flex items-center rounded-full bg-zinc-950 px-5 py-2 text-sm font-bold text-white transition hover:bg-zinc-800"
+        onClick={() => {
+          captureConversionEvent("plan_cta_clicked", {
+            signed_in: true,
+            surface: "billing_actions",
+          });
+        }}
       >
         Upgrade plan
       </Link>
@@ -48,6 +55,12 @@ export function BillingActions() {
       <Link
         href="/pricing"
         className="inline-flex items-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+        onClick={() => {
+          captureConversionEvent("plan_cta_clicked", {
+            signed_in: true,
+            surface: "billing_actions_change_plan",
+          });
+        }}
       >
         Change plan
       </Link>

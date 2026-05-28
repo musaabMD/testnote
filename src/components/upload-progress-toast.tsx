@@ -10,6 +10,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resumePersistedExtractionJob } from "@/lib/process-pdf-upload";
 import {
+  getUploadProgressDetail,
+  getUploadProgressLabel,
+  getUploadProgressPercent,
   loadUploadProgressRecords,
   removeUploadProgressRecord,
   UPLOAD_PROGRESS_UPDATED_EVENT,
@@ -19,32 +22,6 @@ import {
 function formatBytes(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function progressPercent(record: UploadProgressRecord) {
-  if (record.status === "ready") return 100;
-  if (record.status === "failed") return 100;
-  if (record.status === "uploading") return 8;
-  if (!record.totalPages || record.totalPages <= 0) {
-    return record.status === "queued" ? 18 : 45;
-  }
-  const pagePct =
-    (Math.max(0, record.progressPagesProcessed ?? 0) / record.totalPages) * 72;
-  return Math.min(95, Math.max(18, Math.round(18 + pagePct)));
-}
-
-function statusLabel(record: UploadProgressRecord) {
-  if (record.status === "uploading") return "Uploading file";
-  if (record.status === "queued") return "Queued for extraction";
-  if (record.status === "processing") {
-    if (record.totalPages) {
-      return `Extracting ${record.progressPagesProcessed ?? 0}/${record.totalPages} pages`;
-    }
-    return "Extracting questions";
-  }
-  if (record.status === "finalizing") return "Saving results";
-  if (record.status === "ready") return "Ready in your library";
-  return "Upload failed";
 }
 
 export function UploadProgressToast() {
@@ -98,7 +75,7 @@ export function UploadProgressToast() {
       {visible.map((record) => {
         const isFailed = record.status === "failed";
         const isReady = record.status === "ready";
-        const pct = progressPercent(record);
+        const pct = getUploadProgressPercent(record);
         return (
           <div
             className="rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-950/15"
@@ -131,7 +108,7 @@ export function UploadProgressToast() {
                       {record.fileName}
                     </p>
                     <p className="mt-0.5 text-xs font-medium text-slate-500">
-                      {statusLabel(record)} · {formatBytes(record.fileSize)}
+                      {getUploadProgressLabel(record)} · {formatBytes(record.fileSize)}
                     </p>
                   </div>
                   <button
@@ -143,9 +120,13 @@ export function UploadProgressToast() {
                     <X className="size-4" aria-hidden />
                   </button>
                 </div>
-                {record.error ? (
-                  <p className="mt-2 text-xs leading-5 text-red-600">{record.error}</p>
-                ) : null}
+                <p
+                  className={`mt-2 text-xs leading-5 ${
+                    isFailed ? "text-red-600" : "text-slate-500"
+                  }`}
+                >
+                  {getUploadProgressDetail(record)}
+                </p>
                 <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${

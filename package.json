@@ -18,6 +18,7 @@
     "test:quiz-progress": "tsx --test src/lib/__tests__/quiz-progress.test.ts",
     "test:quota-errors": "tsx --test src/lib/__tests__/quota-errors.test.ts",
     "test:publish-readiness": "tsx scripts/publish-verification.mts",
+    "report:performance": "tsx scripts/internal-performance-baseline.mts",
     "report:cost": "tsx scripts/internal-cost-report.mts",
     "report:bundle": "tsx scripts/internal-bundle-report.mts"
   },

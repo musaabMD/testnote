@@ -29,6 +29,7 @@ import type * as streaming from "../streaming.js";
 import type * as stripePlanSync from "../stripePlanSync.js";
 import type * as studyFiles from "../studyFiles.js";
 import type * as studyRag from "../studyRag.js";
+import type * as support from "../support.js";
 import type * as usageLedger from "../usageLedger.js";
 import type * as usageLedgerHelpers from "../usageLedgerHelpers.js";
 import type * as userMaintenance from "../userMaintenance.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   stripePlanSync: typeof stripePlanSync;
   studyFiles: typeof studyFiles;
   studyRag: typeof studyRag;
+  support: typeof support;
   usageLedger: typeof usageLedger;
   usageLedgerHelpers: typeof usageLedgerHelpers;
   userMaintenance: typeof userMaintenance;

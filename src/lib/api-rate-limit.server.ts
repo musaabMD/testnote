@@ -1,4 +1,3 @@
-import { getRequestClerkUserId } from "@/lib/request-user.server";
 import { recordAppAuditEvent } from "@/lib/audit-events.server";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
@@ -168,6 +167,7 @@ export async function enforceApiRateLimit(
   request: Request,
   bucketName: ApiRateLimitBucket,
 ): Promise<Response | null> {
+  const { getRequestClerkUserId } = await import("@/lib/request-user.server");
   const userId = await getRequestClerkUserId();
   const clientKey = userId ? `user:${userId}` : `ip:${getRateLimitClientKey(request)}`;
   const result = await checkDistributedApiRateLimit(bucketName, clientKey);

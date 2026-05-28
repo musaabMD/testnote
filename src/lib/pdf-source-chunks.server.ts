@@ -32,6 +32,13 @@ type TextLine = {
   y: number;
 };
 
+export type SourcePagePack = {
+  documentId?: string;
+  pageNumber: number;
+  pageText: string;
+  blocks: SourceChunk[];
+};
+
 /** In-process chunk extraction — used by the PDF subprocess, not Next.js routes directly. */
 export async function extractSourceChunksFromPdfInProcess(
   pdfBytes: ArrayBuffer,
@@ -71,6 +78,65 @@ export async function extractSourceChunksFromPdfInProcess(
   }
 
   return chunks;
+}
+
+export async function extractSourcePagePacksFromPdfInProcess(
+  pdfBytes: ArrayBuffer,
+  fileId?: string,
+): Promise<SourcePagePack[]> {
+  const pdf = await loadServerPdfDocument(pdfBytes);
+  const pdfjs = await getServerPdfJs();
+  const pages: SourcePagePack[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    const positioned = await getPositionedTextItems(page, viewport, pdfjs.Util);
+    const columnItemGroups = splitItemsByColumn(positioned, viewport.width);
+    const pageLines = columnItemGroups.flatMap((columnItems) => groupIntoLines(columnItems));
+    const sortedLines = pageLines.sort((a, b) => {
+      const yDiff = a.y - b.y;
+      if (Math.abs(yDiff) > 4) return yDiff;
+      const aX = Math.min(...a.items.map((item) => item.x));
+      const bX = Math.min(...b.items.map((item) => item.x));
+      return aX - bX;
+    });
+    const blocks: SourceChunk[] = [];
+
+    for (const line of sortedLines) {
+      const block = blockLinesToChunk(
+        [line],
+        pageNumber,
+        viewport.width,
+        viewport.height,
+        0.85,
+      );
+      if (!block) continue;
+      blocks.push({
+        id: `p${pageNumber}_b${blocks.length + 1}`,
+        fileId,
+        pageNumber,
+        text: block.text,
+        region: {
+          ...block.region,
+          sourceKind: "text-line",
+        },
+      });
+    }
+
+    pages.push({
+      documentId: fileId,
+      pageNumber,
+      pageText: sortedLines
+        .map((line) => line.text)
+        .join("\n")
+        .replace(/[ \t]+/g, " ")
+        .trim(),
+      blocks,
+    });
+  }
+
+  return pages;
 }
 
 function findQuestionStartIndexes(lines: TextLine[]): number[] {
@@ -358,7 +424,24 @@ function dedupeChunkCandidates(
 
 function questionBlockScore(text: string) {
   const optionCount = Array.from(text.matchAll(/(?:^|\s)[A-Ea-e][\.\):\-]\s+\S/g)).length;
-  return text.length + optionCount * 100 + (hasQuestionIntent(text) ? 200 : 0);
+  const normalized = normalizeLineForParsing(text);
+  const questionMarkerCount = Array.from(
+    normalized.matchAll(/(?:^|\s)(?:Q(?:uestion)?\.?\s*)?\d{1,4}\s*[\.\):\-]\s+(?=\S)/gi),
+  ).length;
+  const startsWithOption = /^[A-Ea-e][\.\):\-]\s+\S/.test(normalized);
+  const hasBoundary = /\b(?:answer|correct answer|ans\.?|notes?|explanation)\s*[:.\-]/i.test(
+    normalized,
+  );
+
+  return (
+    Math.min(text.length, 300) +
+    optionCount * 100 +
+    (hasQuestionIntent(text) ? 400 : 0) +
+    (parseLeadingQuestionNumber(text) !== null ? 1000 : 0) -
+    (startsWithOption ? 700 : 0) -
+    (hasBoundary ? 800 : 0) -
+    Math.max(0, questionMarkerCount - 1) * 1200
+  );
 }
 
 function normalizeChunkText(text: string) {
@@ -373,7 +456,7 @@ function textContainmentScore(a: string, b: string) {
   if (!a || !b) return 0;
   const shorter = a.length <= b.length ? a : b;
   const longer = a.length > b.length ? a : b;
-  if (longer.includes(shorter)) return shorter.length / longer.length;
+  if (longer.includes(shorter)) return 1;
 
   const shorterTokens = new Set(shorter.split(" ").filter((token) => token.length > 2));
   const longerTokens = new Set(longer.split(" ").filter((token) => token.length > 2));
@@ -589,6 +672,45 @@ export function mapChunkIdsToMcqRegions(
     if (!primary) continue;
 
     mcq.sourcePage = primary.pageNumber;
-    mcq.sourceRegion = primary.region;
+    const pageRegions = ids
+      .map((id) => chunkById.get(id))
+      .filter((chunk): chunk is SourceChunk => Boolean(chunk))
+      .filter((chunk) => chunk.pageNumber === primary.pageNumber)
+      .map((chunk) => chunk.region)
+      .filter((region): region is SourceRegion => Boolean(region));
+
+    mcq.sourceRegion = unionSourceRegions(pageRegions) ?? primary.region;
   }
+}
+
+function unionSourceRegions(regions: SourceRegion[]): SourceRegion | null {
+  if (!regions.length) return null;
+
+  const pageNumber = regions[0]!.pageNumber;
+  let minX = 1;
+  let minY = 1;
+  let maxX = 0;
+  let maxY = 0;
+  let confidence = 1;
+
+  for (const region of regions) {
+    minX = Math.min(minX, region.x);
+    minY = Math.min(minY, region.y);
+    maxX = Math.max(maxX, region.x + region.width);
+    maxY = Math.max(maxY, region.y + region.height);
+    confidence = Math.min(confidence, region.confidence ?? 0.85);
+  }
+
+  return {
+    pageNumber,
+    x: clamp(minX, 0, 1),
+    y: clamp(minY, 0, 1),
+    width: clamp(maxX - minX, 0.01, 1),
+    height: clamp(maxY - minY, 0.01, 1),
+    sourceKind: regions.some((region) => region.sourceKind === "text-line")
+      ? "question-block"
+      : regions[0]!.sourceKind,
+    method: regions[0]!.method,
+    confidence,
+  };
 }

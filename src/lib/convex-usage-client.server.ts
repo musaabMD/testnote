@@ -1,4 +1,5 @@
 import type { AiFeature } from "@/lib/usage-types";
+import { isAdminUser } from "@/lib/admin-access.server";
 
 export type { AiFeature };
 
@@ -48,6 +49,10 @@ export async function preflightAiUsage(args: {
 }): Promise<PreflightResult> {
   if (!isQuotaEnforcementEnabled()) {
     return { allowed: true };
+  }
+
+  if (isAdminUser({ clerkUserId: args.clerkUserId, email: args.email })) {
+    return { allowed: true, plan: "pro" };
   }
 
   assertProductionQuotaConfig();

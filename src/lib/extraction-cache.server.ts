@@ -21,6 +21,7 @@ export type CachedExtractionPayload = {
 };
 
 const CACHE_DIR = path.join(process.cwd(), ".data", "extraction-cache");
+const CONVEX_DOCUMENT_SAFE_BYTES = 800 * 1024;
 
 async function ensureCacheDir() {
   await mkdir(CACHE_DIR, { recursive: true });
@@ -82,11 +83,18 @@ async function getConvexCachedExtraction(
       renderVersion: key.renderVersion,
     });
     if (!row) return null;
+    const payload =
+      Array.isArray(row.mcqs)
+        ? row
+        : row.payloadUrl
+          ? await fetchExtractionPayload(row.payloadUrl)
+          : null;
+    if (!payload?.mcqs || !Array.isArray(payload.mcqs)) return null;
     return {
-      title: row.title,
-      summary: row.summary,
-      mcqs: row.mcqs,
-      sourceChunks: row.sourceChunks,
+      title: payload.title ?? row.title,
+      summary: payload.summary ?? row.summary,
+      mcqs: payload.mcqs,
+      sourceChunks: payload.sourceChunks ?? [],
       cachedAt: row.createdAt,
     };
   } catch (error) {
@@ -95,6 +103,12 @@ async function getConvexCachedExtraction(
     }
     return null;
   }
+}
+
+async function fetchExtractionPayload(url: string): Promise<Partial<CachedExtractionPayload> | null> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) return null;
+  return (await response.json().catch(() => null)) as Partial<CachedExtractionPayload> | null;
 }
 
 async function syncExtractionToConvex(
@@ -109,6 +123,30 @@ async function syncExtractionToConvex(
   const { ConvexHttpClient } = await import("convex/browser");
   const { api } = await import("../../convex/_generated/api");
   const client = new ConvexHttpClient(convexUrl);
+  const encodedPayload = new TextEncoder().encode(JSON.stringify(payload));
+  const payloadBytes = encodedPayload.buffer.slice(
+    encodedPayload.byteOffset,
+    encodedPayload.byteOffset + encodedPayload.byteLength,
+  ) as ArrayBuffer;
+
+  if (encodedPayload.byteLength > CONVEX_DOCUMENT_SAFE_BYTES) {
+    await client.action(api.extractionStorage.upsertFileCachePayload, {
+      secret,
+      fileHash: key.fileHash,
+      extractionMode: key.extractionMode,
+      extractionModel: key.extractionModel,
+      appExtractionVersion: key.appExtractionVersion,
+      promptVersion: key.promptVersion,
+      schemaVersion: key.schemaVersion,
+      renderVersion: key.renderVersion,
+      pageCount,
+      title: payload.title,
+      summary: payload.summary,
+      payloadBytes,
+    });
+    return;
+  }
+
   await client.mutation(api.extractionStorage.upsertFileCache, {
     secret,
     fileHash: key.fileHash,
@@ -144,6 +182,8 @@ export async function persistExtractionCache(
 ): Promise<void> {
   assertProductionServerStorage();
 
+  await setLocalCachedExtraction(key, payload);
+
   if (isConvexStorageConfigured()) {
     await syncExtractionToConvex(key, payload, pageCount);
   } else if (!isDevelopmentStorageAllowed()) {
@@ -151,6 +191,4 @@ export async function persistExtractionCache(
       "Cannot persist extraction cache in production without Convex storage.",
     );
   }
-
-  await setLocalCachedExtraction(key, payload);
 }

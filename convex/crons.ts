@@ -11,6 +11,27 @@ export const refreshPosthogFlags = internalAction({
   },
 });
 
+export const runExtractionWorker = internalAction({
+  args: {},
+  handler: async () => {
+    const workerUrl = process.env.EXTRACTION_WORKER_URL;
+    const secret = process.env.CRON_SECRET ?? process.env.EXTRACTION_STORAGE_SECRET;
+    if (!workerUrl || !secret) return;
+
+    const response = await fetch(workerUrl, {
+      headers: {
+        authorization: `Bearer ${secret}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn("[extraction-worker-cron] worker request failed", {
+        status: response.status,
+      });
+    }
+  },
+});
+
 const crons = cronJobs();
 
 crons.interval(
@@ -23,6 +44,12 @@ crons.interval(
   "recover stale extraction jobs",
   { minutes: 2 },
   internal.extractionStorage.recoverStaleExtractionJobsInternal,
+);
+
+crons.interval(
+  "run extraction worker",
+  { minutes: 2 },
+  internal.crons.runExtractionWorker,
 );
 
 export default crons;

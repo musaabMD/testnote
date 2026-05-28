@@ -180,29 +180,30 @@ export async function loadQuestionSourcePage(args: {
 }): Promise<PagePreviewLoadResult> {
   const renderPage = args.renderPage ?? renderSourcePageWithPdfJs;
 
-  if (args.fileId) {
-    const cached = await loadSourcePagePreview(args.fileId, args.pageNumber);
-    if (cached) {
-      return cached;
-    }
-  }
-
-  const rendered = await renderPage({
-    source: args.source,
-    previewUrl: args.previewUrl,
-    fileId: args.fileId,
-    pageNumber: args.pageNumber,
-  });
-
-  if (args.fileId) {
-    void saveCachedSourcePagePreview({
+  try {
+    const rendered = await renderPage({
+      source: args.source,
+      previewUrl: args.previewUrl,
       fileId: args.fileId,
       pageNumber: args.pageNumber,
-      imageDataUrl: rendered.imageUrl,
-      width: rendered.width,
-      height: rendered.height,
     });
-  }
 
-  return rendered;
+    if (args.fileId) {
+      void saveCachedSourcePagePreview({
+        fileId: args.fileId,
+        pageNumber: args.pageNumber,
+        imageDataUrl: rendered.imageUrl,
+        width: rendered.width,
+        height: rendered.height,
+      });
+    }
+
+    return rendered;
+  } catch (error) {
+    if (args.fileId) {
+      const cached = await loadSourcePagePreview(args.fileId, args.pageNumber);
+      if (cached) return cached;
+    }
+    throw error;
+  }
 }

@@ -5,6 +5,11 @@ import { AddSourceCard } from "@/components/dashboard/add-source-card";
 import { DashboardGreeting } from "@/components/dashboard/dashboard-greeting";
 import { DashboardStats } from "@/components/dashboard/dashboard-stats";
 import { FileList } from "@/components/pdf/file-list";
+import {
+  StudyOnboardingModal,
+  type PendingOnboardingFile,
+  type StudyOnboardingResult,
+} from "@/components/study-onboarding-modal";
 import { useStudyFiles } from "@/hooks/use-study-files";
 import {
   filterSupportedUploadFiles,
@@ -14,6 +19,7 @@ import {
   getUnsupportedUploadReason,
   UPLOAD_ACCEPT_ATTRIBUTE,
 } from "@/lib/upload-file-types";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { getUserDisplayName } from "@/lib/user-display-name";
 import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 import { Loader2 } from "lucide-react";
@@ -35,9 +41,15 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [pendingOnboardingFiles, setPendingOnboardingFiles] = useState<
+    PendingOnboardingFile[]
+  >([]);
   const [uploadError, setUploadError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
+  const uploadContextRef = useRef<StudyOnboardingResult | null>(null);
   const userName = mounted ? getUserDisplayName(user) : "You";
 
   useEffect(() => {
@@ -45,8 +57,24 @@ export default function DashboardPage() {
     return () => window.clearTimeout(timeout);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+    const planSlug = params.get("plan") ?? "unknown";
+    const storageKey = `testnote:checkout_completed:${planSlug}`;
+    if (window.sessionStorage.getItem(storageKey)) return;
+    window.sessionStorage.setItem(storageKey, "1");
+    captureConversionEvent("checkout_completed", {
+      plan_slug: planSlug,
+      plan_period: "month",
+    });
+  }, []);
+
   const handleUpload = useCallback(
-    async (incoming: FileList | File[] | null) => {
+    async (
+      incoming: FileList | File[] | null,
+      context = uploadContextRef.current,
+    ) => {
       const incomingFiles = incoming ? Array.from(incoming) : [];
       const unsupported = incomingFiles.find((file) => getUnsupportedUploadReason(file));
       if (unsupported) {
@@ -71,6 +99,8 @@ export default function DashboardPage() {
         await processPdfUploads(supported, {
           append: true,
           addedBy: userName,
+          examSlug: context?.examSlug,
+          examName: context?.examName,
         });
       } catch (error) {
         setUploadError(
@@ -84,13 +114,45 @@ export default function DashboardPage() {
     [userName],
   );
 
+  const beginUploadOnboarding = useCallback((files?: File[]) => {
+    pendingUploadFilesRef.current = files ?? null;
+    setPendingOnboardingFiles(
+      files?.map((file) => ({ name: file.name, size: file.size })) ?? [],
+    );
+    setOnboardingOpen(true);
+  }, []);
+
+  const handleOnboardingComplete = useCallback(
+    (result: StudyOnboardingResult) => {
+      uploadContextRef.current = result;
+      const pendingFiles = pendingUploadFilesRef.current;
+      pendingUploadFilesRef.current = null;
+      setPendingOnboardingFiles([]);
+
+      if (pendingFiles?.length) {
+        void handleUpload(pendingFiles, result);
+        return;
+      }
+
+      fileInputRef.current?.click();
+    },
+    [handleUpload],
+  );
+
+  const handleOnboardingClose = useCallback(() => {
+    pendingUploadFilesRef.current = null;
+    setPendingOnboardingFiles([]);
+    setOnboardingOpen(false);
+  }, []);
+
   const handleDrop = useCallback(
     (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
       setDragOver(false);
-      void handleUpload(event.dataTransfer.files);
+      const droppedFiles = Array.from(event.dataTransfer.files);
+      if (droppedFiles.length) beginUploadOnboarding(droppedFiles);
     },
-    [handleUpload],
+    [beginUploadOnboarding],
   );
 
   const handleDragOver = useCallback((event: DragEvent<HTMLElement>) => {
@@ -123,6 +185,13 @@ export default function DashboardPage() {
       {dragOver ? (
         <div className="pointer-events-none fixed inset-0 z-40 border-4 border-dashed border-sky-400 bg-sky-50/40" />
       ) : null}
+
+      <StudyOnboardingModal
+        open={onboardingOpen}
+        onClose={handleOnboardingClose}
+        onComplete={handleOnboardingComplete}
+        pendingFiles={pendingOnboardingFiles}
+      />
 
       {isProcessing ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
@@ -163,9 +232,9 @@ export default function DashboardPage() {
             <h3 className="text-base font-bold text-slate-900">Your courses</h3>
             <AddSourceCard
               isProcessing={isProcessing}
-              onAdd={() => fileInputRef.current?.click()}
+              onAdd={() => beginUploadOnboarding()}
               onAddFiles={(incoming) => {
-                void handleUpload(incoming);
+                beginUploadOnboarding(incoming);
               }}
             />
           </div>
@@ -176,7 +245,7 @@ export default function DashboardPage() {
           files={files ?? []}
           isProcessing={isProcessing}
           isReady={isReady}
-          onPickFiles={() => fileInputRef.current?.click()}
+          onPickFiles={() => beginUploadOnboarding()}
           showAddButton={false}
           showHeader={false}
           uploadError={uploadError}

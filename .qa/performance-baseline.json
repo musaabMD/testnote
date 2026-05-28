@@ -1,0 +1,112 @@
+{
+  "generatedAt": "2026-05-27T19:05:09.531Z",
+  "buildOutputFound": true,
+  "versions": {
+    "next": "16.2.6",
+    "react": "19.2.4",
+    "convex": "^1.37.0",
+    "vercelAnalytics": "^2.0.1"
+  },
+  "bundle": {
+    "assetCount": 57,
+    "jsBytes": 2969907,
+    "cssBytes": 245672,
+    "largestAssets": [
+      {
+        "file": ".next/static/chunks/07j077jbyhh02.js",
+        "bytes": 434085
+      },
+      {
+        "file": ".next/static/chunks/0m0r.f-quljhr.css",
+        "bytes": 238763
+      },
+      {
+        "file": ".next/static/chunks/086e9pzngjt46.js",
+        "bytes": 220634
+      },
+      {
+        "file": ".next/static/chunks/08osq3875j0mk.js",
+        "bytes": 220634
+      },
+      {
+        "file": ".next/static/chunks/0~a9mdpb~5gge.js",
+        "bytes": 220634
+      },
+      {
+        "file": ".next/static/chunks/110q6k5sdl4es.js",
+        "bytes": 203384
+      },
+      {
+        "file": ".next/static/chunks/0jnnwdq14gp_2.js",
+        "bytes": 188105
+      },
+      {
+        "file": ".next/static/chunks/03~yq9q893hmn.js",
+        "bytes": 112594
+      },
+      {
+        "file": ".next/static/chunks/0rbeu7im36x17.js",
+        "bytes": 109778
+      },
+      {
+        "file": ".next/static/chunks/003a75fwqp_ho.js",
+        "bytes": 88532
+      },
+      {
+        "file": ".next/static/chunks/0g73g~reip~u_.js",
+        "bytes": 80998
+      },
+      {
+        "file": ".next/static/chunks/152viftlflrqj.js",
+        "bytes": 72136
+      },
+      {
+        "file": ".next/static/chunks/00z65b5~vwp3~.js",
+        "bytes": 65423
+      },
+      {
+        "file": ".next/static/chunks/0tnop~aeg~red.js",
+        "bytes": 56577
+      },
+      {
+        "file": ".next/static/chunks/0ctsxqkhwvm8s.js",
+        "bytes": 54646
+      },
+      {
+        "file": ".next/static/chunks/1642im6g_dsan.js",
+        "bytes": 51805
+      },
+      {
+        "file": ".next/static/chunks/08moqi94vlfb1.js",
+        "bytes": 45605
+      },
+      {
+        "file": ".next/static/chunks/02r.8~b6wz-_1.js",
+        "bytes": 44908
+      },
+      {
+        "file": ".next/static/chunks/07uz2g0_38qia.js",
+        "bytes": 43946
+      },
+      {
+        "file": ".next/static/chunks/0g431qa4hvz1r.js",
+        "bytes": 38436
+      }
+    ]
+  },
+  "metricTargets": {
+    "lcpP75MobileMs": 2500,
+    "inpP75MobileMs": 200,
+    "clsP75Mobile": 0.1,
+    "uploadTimeToQueued10MbP75Ms": 4000,
+    "uploadTimeToQueued100MbP75Ms": 15000,
+    "extractionQueueWaitP75Ms": 30000,
+    "jobPollQueryP75Ms": 150,
+    "duplicateExtractionRate": 0.01
+  },
+  "notes": [
+    "Bundle data is from .next/static.",
+    "Upload timing is exposed through the Server-Timing header on POST /api/pdf/mcqs.",
+    "Web Vitals reporting is opt-in with NEXT_PUBLIC_ENABLE_WEB_VITALS_REPORTING=true and PERFORMANCE_LOGGING_ENABLED=true."
+  ]
+}

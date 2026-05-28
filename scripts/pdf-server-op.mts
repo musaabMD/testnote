@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 
-import { extractSourceChunksFromPdfInProcess } from "../src/lib/pdf-source-chunks.server.ts";
+import {
+  extractSourceChunksFromPdfInProcess,
+  extractSourcePagePacksFromPdfInProcess,
+} from "../src/lib/pdf-source-chunks.server.ts";
 import {
   getPdfPageCountInProcess,
   probePdfSelectableTextInProcess,
@@ -11,7 +14,7 @@ const pdfPath = process.argv[3];
 const fileId = process.argv[4];
 
 if (!op || !pdfPath) {
-  console.error("Usage: pdf-server-op.mts <probe|chunks|pagecount> <pdf-path> [fileId]");
+  console.error("Usage: pdf-server-op.mts <probe|chunks|pagecount|pagepacks> <pdf-path> [fileId]");
   process.exit(1);
 }
 
@@ -32,6 +35,9 @@ switch (op) {
     break;
   case "chunks":
     payload = await extractSourceChunksFromPdfInProcess(arrayBuffer, fileId);
+    break;
+  case "pagepacks":
+    payload = await extractSourcePagePacksFromPdfInProcess(arrayBuffer, fileId);
     break;
   default:
     console.error(`Unknown op: ${op}`);

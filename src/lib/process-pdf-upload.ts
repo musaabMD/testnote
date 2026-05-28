@@ -14,6 +14,7 @@ import { loadPdfQuizSettings } from "@/lib/quiz-settings";
 import { loadFiles, saveFileQueue } from "@/lib/pdf-view-storage";
 import { buildRagDocumentText, buildRagSourceChunks } from "@/lib/source-rag";
 import { assertSupportedUploadFiles } from "@/lib/upload-file-types";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import {
   patchUploadProgressRecord,
   upsertUploadProgressRecord,
@@ -39,6 +40,7 @@ type ExtractionJobStartResponse = {
   fileHash: string;
   fileName?: string;
   pageCount?: number;
+  inFlightHit?: boolean;
   error?: string;
   hint?: string;
   failureReason?: string;
@@ -103,6 +105,7 @@ export async function pollExtractionJob(
       if (options?.uploadProgressId) {
         patchUploadProgressRecord(options.uploadProgressId, {
           status: "finalizing",
+          phase: "saving_results",
           fileHash: payload.fileHash,
           progressPagesProcessed: payload.totalPages,
           totalPages: payload.totalPages,
@@ -114,6 +117,12 @@ export async function pollExtractionJob(
     if (options?.uploadProgressId) {
       patchUploadProgressRecord(options.uploadProgressId, {
         status: payload.status,
+        phase:
+          payload.status === "queued"
+            ? "queued"
+            : payload.progressPagesProcessed > 0
+              ? "extracting_questions"
+              : "reading_pages",
         fileHash: payload.fileHash,
         progressPagesProcessed: payload.progressPagesProcessed,
         totalPages: payload.totalPages,
@@ -163,6 +172,14 @@ function safeMultipartFileName(file: File) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return `${base || "upload"}.${extension}`;
+}
+
+function fileSizeMb(file: File) {
+  return Math.round((file.size / (1024 * 1024)) * 100) / 100;
+}
+
+function currentPath() {
+  return typeof window === "undefined" ? "" : window.location.pathname;
 }
 
 function remoteSourceForResult(result: ExtractionApiResponse) {
@@ -267,29 +284,52 @@ export async function processPdfUploads(
   const queue: PdfFileQueueItem[] = [...existingQueue];
 
   for (const file of supportedFiles) {
+    const startedAt = Date.now();
+    let failureTracked = false;
     const uploadProgressId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     upsertUploadProgressRecord({
       id: uploadProgressId,
       fileName: file.name,
       fileSize: file.size,
       status: "uploading",
+      phase: "checking_file",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    captureConversionEvent("first_upload_started", {
+      file_type: file.type || inferFileExtension(file.name, file.type),
+      file_size_mb: fileSizeMb(file),
+      source_path: currentPath(),
+    });
 
     try {
+      const pageCountPromise = getPageCountForFile(file).then((pageCount) => {
+        patchUploadProgressRecord(uploadProgressId, {
+          phase: "uploading_file",
+          totalPages: pageCount,
+          progressPagesProcessed: 0,
+        });
+        return pageCount;
+      });
+
+      patchUploadProgressRecord(uploadProgressId, {
+        phase: "counting_pages",
+      });
+
+      const responsePromise = (async () => {
+        const formData = new FormData();
+        formData.append("file", file, safeMultipartFileName(file));
+        formData.append("fileName", file.name);
+        formData.append("extractionMode", loadPdfQuizSettings().extractionMode);
+        return fetch("/api/pdf/mcqs", {
+          method: "POST",
+          body: formData,
+        });
+      })();
+
       const [pageCount, response] = await Promise.all([
-        getPageCountForFile(file),
-        (async () => {
-          const formData = new FormData();
-          formData.append("file", file, safeMultipartFileName(file));
-          formData.append("fileName", file.name);
-          formData.append("extractionMode", loadPdfQuizSettings().extractionMode);
-          return fetch("/api/pdf/mcqs", {
-            method: "POST",
-            body: formData,
-          });
-        })(),
+        pageCountPromise,
+        responsePromise,
       ]);
 
       const payload = (await response.json()) as
@@ -297,15 +337,27 @@ export async function processPdfUploads(
         | ExtractionJobStartResponse;
 
       if (!response.ok) {
+        failureTracked = true;
+        captureConversionEvent("first_extraction_failed", {
+          failure_reason:
+            "failureReason" in payload && payload.failureReason
+              ? payload.failureReason
+              : extractionErrorMessage(payload),
+          file_type: file.type || inferFileExtension(file.name, file.type),
+          file_size_mb: fileSizeMb(file),
+          page_count: pageCount,
+        });
         throw new Error(extractionErrorMessage(payload));
       }
 
       if (response.status === 202 && "jobId" in payload) {
         const record = patchUploadProgressRecord(uploadProgressId, {
           status: payload.status,
+          phase: payload.status === "queued" ? "queued" : "reading_pages",
           jobId: payload.jobId,
           fileHash: payload.fileHash,
           totalPages: payload.pageCount ?? pageCount,
+          progressPagesProcessed: 0,
         });
         if (record) options?.onJobStarted?.(record);
       }
@@ -332,9 +384,17 @@ export async function processPdfUploads(
 
       patchUploadProgressRecord(uploadProgressId, {
         status: "ready",
+        phase: "saving_results",
         fileHash: mcqResult.fileHash,
         progressPagesProcessed: mcqResult.pageCount ?? pageCount,
         totalPages: mcqResult.pageCount ?? pageCount,
+      });
+      captureConversionEvent("first_extraction_completed", {
+        duration_seconds: Math.round((Date.now() - startedAt) / 100) / 10,
+        question_count: mcqResult.mcqs.length,
+        page_count: mcqResult.pageCount ?? pageCount,
+        file_type: file.type || inferFileExtension(file.name, file.type),
+        used_cache: response.status !== 202,
       });
     } catch (error) {
       const message =
@@ -343,6 +403,13 @@ export async function processPdfUploads(
         status: "failed",
         error: message,
       });
+      if (!failureTracked) {
+        captureConversionEvent("first_extraction_failed", {
+          failure_reason: message,
+          file_type: file.type || inferFileExtension(file.name, file.type),
+          file_size_mb: fileSizeMb(file),
+        });
+      }
       throw error;
     }
   }

@@ -29,8 +29,29 @@ export type ExtractionJobRecord = {
   updatedAt: number;
 };
 
+export type WorkerExtractionJob = {
+  jobId: string;
+  fileHash: string;
+  fileName?: string;
+  mimeType?: string;
+  extractionMode?: string;
+  extractionModel?: string;
+  clerkUserId?: string;
+  totalPages: number;
+};
+
+export type ActiveExtractionJob = {
+  jobId: string;
+  status: "queued" | "processing";
+  fileHash: string;
+  fileName?: string;
+  totalPages: number;
+  progressPagesProcessed: number;
+};
+
 const JOBS_DIR = path.join(process.cwd(), ".data", "extraction-jobs");
 const EXTRACTION_RECORDS_DIR = path.join(process.cwd(), ".data", "pdf-extraction-records");
+const CONVEX_DOCUMENT_SAFE_BYTES = 800 * 1024;
 
 async function ensureJobsDir() {
   if (!isDevelopmentStorageAllowed()) return;
@@ -231,6 +252,55 @@ export async function updateExtractionJob(
   return updated;
 }
 
+export async function claimNextWorkerExtractionJob(args?: {
+  staleAfterMs?: number;
+}): Promise<WorkerExtractionJob | null> {
+  assertProductionServerStorage();
+
+  if (!isConvexStorageConfigured()) return null;
+
+  const { ConvexHttpClient } = await import("convex/browser");
+  const { api } = await import("../../convex/_generated/api");
+  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  return await client.mutation(api.extractionStorage.claimNextWorkerExtractionJob, {
+    secret: process.env.EXTRACTION_STORAGE_SECRET!,
+    staleAfterMs: args?.staleAfterMs ?? 120_000,
+  });
+}
+
+export async function getActiveExtractionJobForUpload(args: {
+  fileHash: string;
+  extractionMode?: string;
+  extractionModel?: string;
+  clerkUserId?: string;
+  staleAfterMs?: number;
+}): Promise<ActiveExtractionJob | null> {
+  assertProductionServerStorage();
+
+  if (!isConvexStorageConfigured()) return null;
+
+  const { ConvexHttpClient } = await import("convex/browser");
+  const { api } = await import("../../convex/_generated/api");
+  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const job = await client.query(api.extractionStorage.getActiveExtractionJobForUpload, {
+    secret: process.env.EXTRACTION_STORAGE_SECRET!,
+    fileHash: args.fileHash,
+    extractionMode: args.extractionMode,
+    extractionModel: args.extractionModel,
+    clerkUserId: args.clerkUserId,
+    staleAfterMs: args.staleAfterMs ?? 120_000,
+  });
+  if (!job || (job.status !== "queued" && job.status !== "processing")) return null;
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    fileHash: job.fileHash,
+    fileName: job.fileName,
+    totalPages: job.totalPages,
+    progressPagesProcessed: job.progressPagesProcessed,
+  };
+}
+
 export async function persistPdfExtractionRecord(args: {
   clerkUserId?: string;
   fileHash: string;
@@ -267,6 +337,35 @@ export async function persistPdfExtractionRecord(args: {
   const { ConvexHttpClient } = await import("convex/browser");
   const { api } = await import("../../convex/_generated/api");
   const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const extractionPayload = {
+    title: args.title,
+    summary: args.summary,
+    mcqs: args.mcqs,
+    sourceChunks: args.sourceChunks,
+  };
+  const encodedPayload = new TextEncoder().encode(JSON.stringify(extractionPayload));
+  const payloadBytes = encodedPayload.buffer.slice(
+    encodedPayload.byteOffset,
+    encodedPayload.byteOffset + encodedPayload.byteLength,
+  ) as ArrayBuffer;
+
+  if (encodedPayload.byteLength > CONVEX_DOCUMENT_SAFE_BYTES) {
+    await client.action(api.extractionStorage.upsertPdfExtractionPayload, {
+      secret: process.env.EXTRACTION_STORAGE_SECRET!,
+      clerkUserId: args.clerkUserId,
+      fileHash: args.fileHash,
+      fileName: args.fileName,
+      pageCount: args.pageCount,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      appExtractionVersion: args.appExtractionVersion,
+      title: args.title,
+      summary: args.summary,
+      payloadBytes,
+    });
+    return;
+  }
+
   await client.mutation(api.extractionStorage.upsertPdfExtraction, {
     secret: process.env.EXTRACTION_STORAGE_SECRET!,
     clerkUserId: args.clerkUserId,
@@ -326,6 +425,14 @@ export async function getPersistedPdfExtractionRecord(args: {
   });
   if (!row) return null;
 
+  const payload =
+    Array.isArray(row.mcqs)
+      ? row
+      : row.payloadUrl
+        ? await fetchPersistedExtractionPayload(row.payloadUrl)
+        : null;
+  if (!payload?.mcqs || !Array.isArray(payload.mcqs)) return null;
+
   return {
     fileHash: row.fileHash,
     fileName: row.fileName,
@@ -333,9 +440,19 @@ export async function getPersistedPdfExtractionRecord(args: {
     extractionMode: row.extractionMode,
     extractionModel: row.extractionModel,
     appExtractionVersion: row.appExtractionVersion,
-    title: row.title,
-    summary: row.summary,
-    mcqs: row.mcqs,
-    sourceChunks: row.sourceChunks,
+    title: payload.title ?? row.title,
+    summary: payload.summary ?? row.summary,
+    mcqs: payload.mcqs,
+    sourceChunks: payload.sourceChunks ?? [],
   };
+}
+
+async function fetchPersistedExtractionPayload(
+  url: string,
+): Promise<Partial<PersistedPdfExtractionRecord> | null> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) return null;
+  return (await response.json().catch(() => null)) as
+    | Partial<PersistedPdfExtractionRecord>
+    | null;
 }

@@ -350,6 +350,8 @@ const MCQ_LIST_KEYS = [
   "questions",
   "question_list",
   "extracted_questions",
+  "new_questions",
+  "generated_questions",
   "items",
   "quiz",
   "results",

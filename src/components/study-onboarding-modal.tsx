@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ArrowLeft, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { ArrowLeft, FileText, Loader2, X } from "lucide-react";
+import { useExamCatalog } from "@/hooks/use-exam-catalog";
 import {
   DEFAULT_STUDY_PROFILE,
   loadStudyProfile,
@@ -45,18 +46,61 @@ const inputClass =
 type StudyOnboardingModalProps = {
   open: boolean;
   onClose: () => void;
+  onComplete?: (result: StudyOnboardingResult) => void;
+  pendingFiles?: PendingOnboardingFile[];
+};
+
+export type StudyOnboardingResult = {
+  profile: StudyProfile;
+  examSlug?: string;
+  examName?: string;
+};
+
+export type PendingOnboardingFile = {
+  name: string;
+  size?: number;
 };
 
 export function StudyOnboardingModal({
   open,
   onClose,
+  onComplete,
+  pendingFiles = [],
 }: StudyOnboardingModalProps) {
+  const { exams: examOptions, isLoading: examsLoading } = useExamCatalog();
   const [profile, setProfile] = useState<StudyProfile>(
     () => loadStudyProfile() ?? DEFAULT_STUDY_PROFILE,
   );
+  const [selectedExamSlug, setSelectedExamSlug] = useState(
+    () => loadStudyProfile()?.examSlug ?? "",
+  );
+  const [customExamOpen, setCustomExamOpen] = useState(() => {
+    const saved = loadStudyProfile();
+    return Boolean(saved?.examGoal?.trim() && !saved.examSlug);
+  });
   const [step, setStep] = useState(0);
 
+  const selectedExam = useMemo(
+    () => examOptions?.find((exam) => exam.slug === selectedExamSlug) ?? null,
+    [examOptions, selectedExamSlug],
+  );
+
   if (!open) return null;
+
+  function chooseExam(slug: string, name: string) {
+    setSelectedExamSlug(slug);
+    setCustomExamOpen(false);
+    setProfile((current) => ({ ...current, examGoal: name }));
+  }
+
+  function chooseOther() {
+    setSelectedExamSlug("");
+    setCustomExamOpen(true);
+    setProfile((current) => ({
+      ...current,
+      examGoal: current.examSlug ? "" : current.examGoal,
+    }));
+  }
 
   function toggleFormat(format: string) {
     setProfile((current) => ({
@@ -67,9 +111,35 @@ export function StudyOnboardingModal({
     }));
   }
 
-  function handleFinish() {
-    saveStudyProfile(profile);
+  function buildResult(): StudyOnboardingResult {
+    const fallbackExamName = profile.examGoal.trim();
+    const examName = selectedExam?.name ?? fallbackExamName;
+    const finalProfile: StudyProfile = {
+      ...profile,
+      examGoal: examName,
+      examSlug: selectedExam?.slug ?? "",
+      examName,
+    };
+    return {
+      profile: finalProfile,
+      examSlug: selectedExam?.slug,
+      examName: examName || undefined,
+    };
+  }
+
+  function completeOnboarding() {
+    const result = buildResult();
+    saveStudyProfile(result.profile);
+    onComplete?.(result);
     onClose();
+  }
+
+  function handleFinish() {
+    completeOnboarding();
+  }
+
+  function handleSkip() {
+    completeOnboarding();
   }
 
   function goNext() {
@@ -88,7 +158,7 @@ export function StudyOnboardingModal({
   const isLastStep = step === STEP_COUNT - 1;
   const canContinue =
     step === 0
-      ? profile.examGoal.trim().length > 0
+      ? Boolean(selectedExam || (customExamOpen && profile.examGoal.trim()))
       : step === 3
         ? Boolean(profile.level)
         : step === 5
@@ -125,35 +195,71 @@ export function StudyOnboardingModal({
           </div>
           <button
             type="button"
-            className="shrink-0 rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-            onClick={onClose}
+            className="shrink-0 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+            onClick={handleSkip}
           >
-            Skip
+            {pendingFiles.length ? "Skip and upload" : "Skip"}
           </button>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-8 sm:px-6 sm:py-12">
+        {pendingFiles.length ? <PendingFiles files={pendingFiles} /> : null}
+
         {step === 0 && (
           <StepShell
-            title="What exam are you preparing for?"
-            subtitle="We'll tailor summaries, quizzes, and flashcards to your goal."
+            title="What exam or course are you preparing for?"
+            subtitle="Pick a tag before upload. Free text stays hidden unless you choose Other."
           >
-            <input
-              autoFocus
-              className={inputClass}
-              placeholder="e.g. USMLE Step 1, MCAT, Organic Chemistry Final"
-              value={profile.examGoal}
-              onChange={(event) =>
-                setProfile((current) => ({
-                  ...current,
-                  examGoal: event.target.value,
-                }))
-              }
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && canContinue) goNext();
-              }}
-            />
+            {examsLoading ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Loading exam catalog...
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[42vh] space-y-2 overflow-y-auto pr-1">
+                {(examOptions ?? []).map((exam) => (
+                  <OptionButton
+                    key={exam.slug}
+                    active={selectedExamSlug === exam.slug}
+                    hint={`${exam.category} · ${exam.countryName}`}
+                    label={exam.name}
+                    onClick={() => chooseExam(exam.slug, exam.name)}
+                  />
+                ))}
+                <OptionButton
+                  active={customExamOpen}
+                  hint="Only use this when your exam or course is not listed."
+                  label="Other"
+                  onClick={chooseOther}
+                />
+              </div>
+            )}
+
+            {customExamOpen ? (
+              <input
+                autoFocus
+                className={`${inputClass} mt-4`}
+                placeholder="Type your exam or course name"
+                value={profile.examGoal}
+                onChange={(event) =>
+                  setProfile((current) => ({
+                    ...current,
+                    examGoal: event.target.value,
+                  }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && canContinue) goNext();
+                }}
+              />
+            ) : null}
+
+            <p className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
+              Uploaded files keep this tag so they can be added to the matching
+              exam page later, and you can upload more under the same tag.
+            </p>
           </StepShell>
         )}
 
@@ -315,6 +421,41 @@ function StepShell({
       </h1>
       <p className="mt-3 text-base leading-relaxed text-slate-500">{subtitle}</p>
       <div className="mt-8">{children}</div>
+    </div>
+  );
+}
+
+function PendingFiles({ files }: { files: PendingOnboardingFile[] }) {
+  return (
+    <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+          Upload ready
+        </p>
+        <p className="text-xs font-bold text-blue-700">
+          {files.length} file{files.length === 1 ? "" : "s"} queued
+        </p>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+        <div className="h-full w-1/3 rounded-full bg-blue-600" />
+      </div>
+      <div className="mt-3 space-y-2">
+        {files.slice(0, 3).map((file) => (
+          <div
+            key={`${file.name}-${file.size ?? "unknown"}`}
+            className="flex items-center gap-2 text-sm font-semibold text-slate-700"
+          >
+            <FileText className="size-4 shrink-0 text-slate-400" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            <span className="shrink-0 text-xs text-slate-400">Waiting</span>
+          </div>
+        ))}
+        {files.length > 3 ? (
+          <p className="text-xs font-semibold text-slate-400">
+            +{files.length - 3} more queued
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

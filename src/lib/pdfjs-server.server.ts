@@ -1,5 +1,9 @@
 import type { SourceChunk } from "@/lib/highlightable-source";
-import { extractSourceChunksFromPdfInProcess } from "@/lib/pdf-source-chunks.server";
+import {
+  extractSourceChunksFromPdfInProcess,
+  extractSourcePagePacksFromPdfInProcess,
+  type SourcePagePack,
+} from "@/lib/pdf-source-chunks.server";
 import type { PdfTextProbeResult } from "@/lib/pdf-text-probe.core.server";
 import {
   getPdfPageCountInProcess,
@@ -19,6 +23,13 @@ export async function extractSourceChunksFromPdf(
   fileId?: string,
 ): Promise<SourceChunk[]> {
   return extractSourceChunksFromPdfInProcess(pdfBytes, fileId);
+}
+
+export async function extractSourcePagePacksFromPdf(
+  pdfBytes: ArrayBuffer,
+  fileId?: string,
+): Promise<SourcePagePack[]> {
+  return extractSourcePagePacksFromPdfInProcess(pdfBytes, fileId);
 }
 
 /** Page count for upload quota estimation. */

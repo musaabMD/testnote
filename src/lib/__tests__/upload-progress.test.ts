@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import {
+  getUploadProgressDetail,
+  getUploadProgressLabel,
+  getUploadProgressPercent,
   loadUploadProgressRecords,
   patchUploadProgressRecord,
   upsertUploadProgressRecord,
@@ -76,5 +79,28 @@ describe("upload progress", () => {
       ).window.localStorage.getItem(UPLOAD_PROGRESS_STORAGE_KEY),
       "[]",
     );
+  });
+
+  it("describes accepted background jobs as safe to leave", () => {
+    const now = Date.now();
+    const record = {
+      id: "upload-2",
+      fileName: "cardio.pdf",
+      fileSize: 4_000_000,
+      status: "queued" as const,
+      phase: "queued" as const,
+      createdAt: now,
+      updatedAt: now,
+      jobId: "job-123",
+      totalPages: 12,
+      progressPagesProcessed: 0,
+    };
+
+    assert.equal(getUploadProgressLabel(record), "Queued in the background");
+    assert.equal(
+      getUploadProgressDetail(record),
+      "12 pages accepted. Safe to leave this page.",
+    );
+    assert.equal(getUploadProgressPercent(record), 22);
   });
 });

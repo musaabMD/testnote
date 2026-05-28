@@ -317,6 +317,60 @@ describe("documentation and backlog", () => {
     assert.match(schema, /maxFileSizeBytes/);
   });
 
+  it("keeps dashboard usage visibility wired to current period usage", () => {
+    const dashboardStats = readFileSync(
+      path.join(root, "src/components/dashboard/dashboard-stats.tsx"),
+      "utf8",
+    );
+    const users = readFileSync(path.join(root, "convex/users.ts"), "utf8");
+
+    assert.match(dashboardStats, /api\.users\.getMyUsageDashboard/);
+    assert.match(users, /usagePeriods/);
+    assert.match(users, /creditsUsedFromUsage/);
+    assert.match(users, /filesUploaded: period\?\.filesUploaded/);
+    assert.match(users, /pagesProcessed: period\?\.pagesProcessed/);
+    assert.match(users, /chatMessages: period\?\.chatMessages/);
+  });
+
+  it("keeps durable extraction worker recovery wired", () => {
+    const schema = readFileSync(path.join(root, "convex/schema.ts"), "utf8");
+    const extractionStorage = readFileSync(
+      path.join(root, "convex/extractionStorage.ts"),
+      "utf8",
+    );
+    const workerRoute = readFileSync(
+      path.join(root, "src/app/api/pdf/mcqs/worker/route.ts"),
+      "utf8",
+    );
+    const crons = readFileSync(path.join(root, "convex/crons.ts"), "utf8");
+
+    assert.match(schema, /by_status_updated/);
+    assert.match(extractionStorage, /claimNextWorkerExtractionJob/);
+    assert.match(extractionStorage, /getActiveExtractionJobForUpload/);
+    assert.match(workerRoute, /CRON_SECRET/);
+    assert.match(workerRoute, /claimNextWorkerExtractionJob/);
+    assert.match(workerRoute, /getConvexSourceFileUrl/);
+    assert.match(workerRoute, /runPdfMcqExtraction/);
+    assert.match(crons, /runExtractionWorker/);
+    assert.match(crons, /EXTRACTION_WORKER_URL/);
+    assert.match(crons, /internal\.crons\.runExtractionWorker/);
+  });
+
+  it("keeps upload extraction on durable worker path instead of Next after", () => {
+    const mcqsRoute = readFileSync(
+      path.join(root, "src/app/api/pdf/mcqs/route.ts"),
+      "utf8",
+    );
+
+    assert.doesNotMatch(mcqsRoute, /from "next\/server"/);
+    assert.doesNotMatch(mcqsRoute, /\bafter\s*\(/);
+    assert.match(mcqsRoute, /sourceStored/);
+    assert.match(mcqsRoute, /triggerExtractionWorker/);
+    assert.match(mcqsRoute, /getActiveExtractionJobForUpload/);
+    assert.match(mcqsRoute, /inFlightHit:\s*true/);
+    assert.match(mcqsRoute, /\/api\/pdf\/mcqs\/worker/);
+  });
+
   it("keeps hard limit enforcement hooks in Convex quota preflight", () => {
     const usageLedger = readFileSync(path.join(root, "convex/usageLedger.ts"), "utf8");
     const usageClient = readFileSync(
@@ -371,6 +425,28 @@ describe("documentation and backlog", () => {
     assert.match(sourceFileClient, /api\.r2\.syncMetadata/);
     assert.match(envExample, /R2_BUCKET=drnote-uploads-prod/);
     assert.match(envExample, /R2_ENDPOINT=https:\/\/5000e0a4f0ca6dd90b08bde9dc11ccb9\.r2\.cloudflarestorage\.com/);
+  });
+
+  it("keeps large extraction payloads out of Convex documents", () => {
+    const schema = readFileSync(path.join(root, "convex/schema.ts"), "utf8");
+    const extractionStorage = readFileSync(
+      path.join(root, "convex/extractionStorage.ts"),
+      "utf8",
+    );
+    const extractionCache = readFileSync(
+      path.join(root, "src/lib/extraction-cache.server.ts"),
+      "utf8",
+    );
+    const extractionJobs = readFileSync(
+      path.join(root, "src/lib/extraction-job-store.server.ts"),
+      "utf8",
+    );
+
+    assert.match(schema, /payloadR2Key/);
+    assert.match(extractionStorage, /upsertFileCachePayload/);
+    assert.match(extractionStorage, /upsertPdfExtractionPayload/);
+    assert.match(extractionCache, /CONVEX_DOCUMENT_SAFE_BYTES/);
+    assert.match(extractionJobs, /CONVEX_DOCUMENT_SAFE_BYTES/);
   });
 
   it("does not auto-retry a failed homepage upload batch", () => {
@@ -492,6 +568,10 @@ describe("trackedOpenRouter wiring (static check)", () => {
       path.join(import.meta.dirname, "../../app/api/pdf/mcqs/route.ts"),
       "utf8",
     );
+    const mcqsWorker = readFileSync(
+      path.join(import.meta.dirname, "../../app/api/pdf/mcqs/worker/route.ts"),
+      "utf8",
+    );
     const grammar = readFileSync(
       path.join(import.meta.dirname, "../../app/api/pdf/fix-grammar/route.ts"),
       "utf8",
@@ -505,7 +585,9 @@ describe("trackedOpenRouter wiring (static check)", () => {
       "utf8",
     );
 
-    assert.match(mcqs, /runPdfMcqExtraction/);
+    assert.match(mcqs, /preflightTrackedAiCall/);
+    assert.match(mcqs, /triggerExtractionWorker/);
+    assert.match(mcqsWorker, /runPdfMcqExtraction/);
     assert.match(grammar, /preflightTrackedAiCall/);
     assert.match(grammar, /fixGrammarItems/);
     assert.match(ocr, /trackedOpenRouterFetch/);

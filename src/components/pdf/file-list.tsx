@@ -4,6 +4,7 @@ import { QuotaLimitBanner } from "@/components/quota-limit-banner";
 import { StudyFileCard } from "@/components/pdf/study-file-card";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import {
+  getFileAddedAt,
   getFileUpvoteCount,
   loadBookmarkedFileIds,
   loadFileUpvoteCounts,
@@ -11,8 +12,17 @@ import {
   saveBookmarkedFileIds,
   saveFileUpvotes,
 } from "@/lib/pdf-view-storage";
-import { FileText, Plus, Search, Upload, X } from "lucide-react";
+import { CalendarDays, FileText, Plus, Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+type DateFilter = "all" | "today" | "yesterday" | "last-week";
+
+const DATE_FILTERS: Array<{ value: DateFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "last-week", label: "Last week" },
+];
 
 type FileListProps = {
   files: PdfFileQueueItem[];
@@ -36,6 +46,7 @@ export function FileList({
   showAddButton = true,
 }: FileListProps) {
   const [fileSearch, setFileSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
   const [bookmarkedFileIds, setBookmarkedFileIds] = useState<Set<string>>(
     () => new Set(),
@@ -45,12 +56,14 @@ export function FileList({
     () => new Set(),
   );
   const [shareNotice, setShareNotice] = useState("");
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setBookmarkedFileIds(loadBookmarkedFileIds());
       setUpvoteCounts(loadFileUpvoteCounts());
       setUpvotedFileIds(loadUpvotedFileIds());
+      setNowMs(Date.now());
     }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
@@ -61,24 +74,25 @@ export function FileList({
       const aBookmarked = bookmarkedFileIds.has(a.id) ? 1 : 0;
       const bBookmarked = bookmarkedFileIds.has(b.id) ? 1 : 0;
       if (aBookmarked !== bBookmarked) return bBookmarked - aBookmarked;
-      return a.name.localeCompare(b.name);
+      return getFileAddedAt(b) - getFileAddedAt(a);
     });
 
-    if (!normalized) return sorted;
+    return sorted.filter((file) => {
+      if (nowMs && !matchesDateFilter(file, dateFilter, nowMs)) return false;
+      if (!normalized) return true;
 
-    return sorted.filter((file) =>
-      [
+      return [
         file.name,
         file.result.title,
         file.status,
         file.result.summary,
         `${file.result.mcqs.length} questions`,
       ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [bookmarkedFileIds, fileSearch, files]);
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized);
+    });
+  }, [bookmarkedFileIds, dateFilter, fileSearch, files, nowMs]);
 
   function toggleFileBookmark(fileId: string) {
     setBookmarkedFileIds((current) => {
@@ -177,6 +191,31 @@ export function FileList({
         ) : null}
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5">
+        <span className="flex shrink-0 items-center gap-1.5 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+          <CalendarDays className="size-3.5" aria-hidden />
+          Date
+        </span>
+        {DATE_FILTERS.map((filter) => {
+          const active = dateFilter === filter.value;
+          return (
+            <button
+              key={filter.value}
+              aria-pressed={active}
+              className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
+                active
+                  ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
+                  : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+              }`}
+              onClick={() => setDateFilter(filter.value)}
+              type="button"
+            >
+              {filter.label}
+            </button>
+          );
+        })}
+      </div>
+
       <p className="mb-3 text-xs font-semibold text-gray-400">
         {isReady
           ? `${filteredFiles.length} of ${files.length} file${files.length === 1 ? "" : "s"}`
@@ -224,7 +263,9 @@ export function FileList({
           ) : (
             <div className="rounded-2xl bg-white px-4 py-12 text-center shadow-sm">
               <Search className="mx-auto size-10 text-gray-300" aria-hidden />
-              <p className="mt-3 text-sm font-bold text-gray-500">No files match your search</p>
+              <p className="mt-3 text-sm font-bold text-gray-500">
+                No files match this filter
+              </p>
             </div>
           )}
         </div>
@@ -254,5 +295,30 @@ export function FileList({
         </button>
       )}
     </div>
+  );
+}
+
+function matchesDateFilter(
+  file: PdfFileQueueItem,
+  filter: DateFilter,
+  nowMs: number,
+) {
+  if (filter === "all") return true;
+
+  const dayDiff = getUploadDayDiff(getFileAddedAt(file), nowMs);
+  if (filter === "today") return dayDiff === 0;
+  if (filter === "yesterday") return dayDiff === 1;
+  return dayDiff >= 2 && dayDiff < 8;
+}
+
+function getUploadDayDiff(timestamp: number, nowMs: number) {
+  const startOfToday = new Date(nowMs);
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const startOfUploadDay = new Date(timestamp);
+  startOfUploadDay.setHours(0, 0, 0, 0);
+
+  return Math.floor(
+    (startOfToday.getTime() - startOfUploadDay.getTime()) / 86_400_000,
   );
 }

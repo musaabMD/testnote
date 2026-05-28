@@ -1,6 +1,6 @@
 # Launch Status Report
 
-**Generated:** 2026-05-26  
+**Generated:** 2026-05-27  
 **Site:** https://www.drnote.co  
 **Verdict:** Code is largely ready; paid launch blocked by external config + live verification.
 
@@ -17,6 +17,11 @@ The repository contains the full payment and quota pipeline: Clerk Billing UI, w
 - Quota/billing/rate-limit error classification (`src/lib/quota-errors.ts`)
 - Upgrade/manage-billing banners on upload surfaces (`QuotaLimitBanner`)
 - Tutor chat guidance when limits hit
+- Real current-period usage visibility in the dashboard usage popover
+- Convex Cron worker recovery for queued/stale extraction jobs (`/api/pdf/mcqs/worker`)
+- Production `CRON_SECRET` and `CLERK_WEBHOOK_SIGNING_SECRET` presence verified through Vercel CLI
+- Source QA fixture matrix re-run: `npm run test:source-qa-manual` passed 19/19
+- Internal cost report re-run and returned quota/rate-limit/duplicate/source signals
 - Ordered launch-day runbook (`docs/LAUNCH_DAY_RUNBOOK.md`)
 - Unit tests: `npm run test:quota-errors`
 
@@ -65,7 +70,7 @@ Treat every ⚠️ in P0 billing/quota as ❌ until production proof.
 
 | # | Status | What’s left |
 |---|--------|-------------|
-| 19, 21 | ⚠️ | Extraction uses Next `after()` + stale-job cron, not durable workflow. Large uploads can still feel stuck. |
+| 19, 21 | ⚠️ | Extraction still uses Next `after()` for the initial path, but a secured Convex Cron worker now calls a recovery endpoint that claims queued/stale Convex jobs and reruns extraction from persisted source files. Large uploads can still feel stuck if the source file was not persisted before worker recovery. |
 | 22–23 | ❌ | Manual PDF QA — source browser + modal (hang/404 loops). |
 | 28–31 | ❌ | Deployed quota enforcement — code + unit tests exist; no live proof for monthly AI/pages/files/chat, active jobs, max pages/file, max file size. |
 
@@ -117,9 +122,13 @@ All 10 P3 items ✅. No open polish blockers.
 | Tutor (ask/quiz) | Raw API error | Appends `/pricing` guidance for quota/billing errors |
 | Rate limit (429) | Same as quota | Amber banner, no false upgrade CTA |
 
-### 2. Free-tier vs paid-tier usage visibility ❌ (still open)
+### 2. Free-tier vs paid-tier usage visibility ✅ (code)
 
-No “2/3 uploads this month” meter yet. High impact for beta retention; optional before first sale.
+Dashboard usage now reads `api.users.getMyUsageDashboard`, which uses Convex `usagePeriods` for current-month uploads, pages, chat messages, and remaining credits.
+
+### 2b. Durable extraction worker recovery ✅ / ⚠️
+
+Convex Cron calls `/api/pdf/mcqs/worker` every two minutes through `EXTRACTION_WORKER_URL`. The worker is secured by `CRON_SECRET`/`EXTRACTION_STORAGE_SECRET`, claims queued/stale Convex extraction jobs via `claimNextWorkerExtractionJob`, downloads the persisted source file, and runs the existing extraction engine. This is a recovery worker, not a full migration away from the upload route's Next `after()` path.
 
 ### 3. Clerk customer portal ❌ (verify manually)
 

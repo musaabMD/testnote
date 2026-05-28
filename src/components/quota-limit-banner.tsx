@@ -2,6 +2,7 @@
 
 import { AlertCircle, ArrowRight, CheckCircle2, CreditCard } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import {
   Dialog,
   DialogClose,
@@ -12,6 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { classifyUsageError } from "@/lib/quota-errors";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +29,7 @@ export function QuotaLimitBanner({
   compact = false,
 }: QuotaLimitBannerProps) {
   const classified = classifyUsageError(message);
+  const trackedSeenRef = useRef(false);
   const isActionable =
     classified.kind === "plan_quota" ||
     classified.kind === "billing_inactive" ||
@@ -42,6 +45,27 @@ export function QuotaLimitBanner({
         : classified.kind === "plan_quota"
           ? "border-blue-200 bg-blue-50 text-blue-900"
           : "border-red-200 bg-red-50 text-red-700";
+
+  useEffect(() => {
+    if (trackedSeenRef.current) return;
+    trackedSeenRef.current = true;
+
+    if (classified.kind === "billing_inactive") {
+      captureConversionEvent("billing_inactive_seen", {
+        billing_status: "inactive",
+        limit_type: classified.kind,
+        surface: compact ? "compact_quota_banner" : "quota_banner",
+      });
+      return;
+    }
+
+    if (classified.kind === "plan_quota") {
+      captureConversionEvent("quota_limit_seen", {
+        limit_type: classified.kind,
+        surface: compact ? "compact_quota_banner" : "quota_banner",
+      });
+    }
+  }, [classified.kind, compact]);
 
   if (compact && !isActionable) {
     return (
@@ -94,6 +118,12 @@ export function QuotaLimitBanner({
                       : "bg-blue-700 hover:bg-blue-800",
                     compact ? "text-xs" : "text-sm",
                   )}
+                  onClick={() => {
+                    captureConversionEvent("quota_upgrade_clicked", {
+                      limit_type: classified.kind,
+                      surface: compact ? "compact_quota_banner" : "quota_banner",
+                    });
+                  }}
                   type="button"
                 />
               }
@@ -159,6 +189,12 @@ export function QuotaLimitBanner({
                     : "bg-blue-700 hover:bg-blue-800",
                 )}
                 href={classified.primaryHref}
+                onClick={() => {
+                  captureConversionEvent("quota_upgrade_clicked", {
+                    limit_type: classified.kind,
+                    surface: "quota_dialog",
+                  });
+                }}
               >
                 {classified.primaryLabel}
                 <ArrowRight className="size-4" />
@@ -199,6 +235,12 @@ export function QuotaLimitBanner({
                     : "bg-blue-700 hover:bg-blue-800"
                 }`}
                 href={classified.primaryHref}
+                onClick={() => {
+                  captureConversionEvent("quota_upgrade_clicked", {
+                    limit_type: classified.kind,
+                    surface: compact ? "compact_quota_banner" : "quota_banner",
+                  });
+                }}
               >
                 {classified.primaryLabel}
               </Link>
@@ -206,6 +248,12 @@ export function QuotaLimitBanner({
                 <Link
                   className="inline-flex items-center rounded-lg border border-current/20 bg-white/70 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white"
                   href={classified.secondaryHref}
+                  onClick={() => {
+                    captureConversionEvent("support_contact_clicked", {
+                      path: classified.secondaryHref,
+                      reason: classified.kind,
+                    });
+                  }}
                 >
                   {classified.secondaryLabel}
                 </Link>

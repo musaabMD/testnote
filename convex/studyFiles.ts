@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { r2 } from "./r2";
 
 const extractionRecord = v.object({
   fileHash: v.string(),
@@ -7,20 +8,22 @@ const extractionRecord = v.object({
   pageCount: v.optional(v.number()),
   title: v.string(),
   summary: v.string(),
-  mcqs: v.any(),
-  sourceChunks: v.any(),
+  mcqs: v.optional(v.any()),
+  sourceChunks: v.optional(v.any()),
+  payloadUrl: v.optional(v.string()),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
 
-function mapExtractionRecord(row: {
+async function mapExtractionRecord(row: {
   fileHash: string;
   fileName?: string;
   pageCount?: number;
   title: string;
   summary: string;
-  mcqs: unknown;
-  sourceChunks: unknown;
+  mcqs?: unknown;
+  sourceChunks?: unknown;
+  payloadR2Key?: string;
   createdAt: number;
   updatedAt: number;
 }) {
@@ -32,6 +35,9 @@ function mapExtractionRecord(row: {
     summary: row.summary,
     mcqs: row.mcqs,
     sourceChunks: row.sourceChunks,
+    payloadUrl: row.payloadR2Key
+      ? await r2.getUrl(row.payloadR2Key, { expiresIn: 60 * 10 })
+      : undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -49,9 +55,9 @@ export const listMyExtractions = query({
       .withIndex("by_clerk_user", (q) => q.eq("clerkUserId", identity.subject))
       .collect();
 
-    return rows
-      .map(mapExtractionRecord)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+    return (await Promise.all(rows.map(mapExtractionRecord))).sort(
+      (a, b) => b.updatedAt - a.updatedAt,
+    );
   },
 });
 
@@ -69,6 +75,6 @@ export const getMyExtraction = query({
       )
       .first();
 
-    return row ? mapExtractionRecord(row) : null;
+    return row ? await mapExtractionRecord(row) : null;
   },
 });

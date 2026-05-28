@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { FileUp, ListChecks, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { ConversionEventOnMount } from "@/components/conversion-event-on-mount";
 import { FeatureGrid } from "@/components/feature-grid";
 import { HeroRotatingLine } from "@/components/hero-feature-rotator";
 import { PublicHeader } from "@/components/site-header";
@@ -54,6 +55,10 @@ const steps = [
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-white text-slate-950">
+      <ConversionEventOnMount
+        eventName="landing_viewed"
+        properties={{ surface: "homepage" }}
+      />
       <PublicHeader />
 
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[860px] flex-col items-center justify-center px-5 py-10 text-center sm:px-6 sm:py-16">

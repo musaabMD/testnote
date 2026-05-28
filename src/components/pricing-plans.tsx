@@ -4,6 +4,8 @@ import { Check, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { SignUpButton, useUser } from "@clerk/nextjs";
 import { CheckoutButton, usePlans } from "@clerk/nextjs/experimental";
+import { useEffect, useRef } from "react";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 
 type Plan = {
   name: string;
@@ -48,9 +50,21 @@ export function PricingPlans() {
   const { isLoaded, isSignedIn } = useUser();
   const plans = usePlans({ for: "user", pageSize: 20 });
   const clerkPlans = plans.data ?? [];
+  const trackedViewRef = useRef(false);
   const billingCheckReady = isLoaded && !plans.isLoading;
   const billingUnavailable =
     billingCheckReady && (plans.isError || clerkPlans.length === 0);
+
+  useEffect(() => {
+    if (!billingCheckReady || trackedViewRef.current) return;
+    trackedViewRef.current = true;
+    captureConversionEvent("pricing_viewed", {
+      signed_in: Boolean(isSignedIn),
+      current_plan: "unknown",
+      billing_available: !billingUnavailable,
+      source_path: window.location.pathname,
+    });
+  }, [billingCheckReady, billingUnavailable, isSignedIn]);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -100,6 +114,7 @@ export function PricingPlans() {
                 isSignedIn={Boolean(isSignedIn)}
                 planId={clerkPlan?.id}
                 planName={plan.name}
+                planSlug={plan.slug}
               />
 
               <ul className="mt-6 space-y-3">
@@ -123,11 +138,13 @@ function PlanAction({
   isSignedIn,
   planId,
   planName,
+  planSlug,
 }: {
   isLoaded: boolean;
   isSignedIn: boolean;
   planId?: string;
   planName: string;
+  planSlug: string;
 }) {
   const className =
     "mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300";
@@ -139,7 +156,27 @@ function PlanAction({
   if (!isSignedIn) {
     return (
       <SignUpButton mode="modal" fallbackRedirectUrl="/pricing">
-        <button type="button" className={className}>Start {planName}</button>
+        <button
+          type="button"
+          className={className}
+          onClick={() => {
+            captureConversionEvent("plan_cta_clicked", {
+              plan_slug: planSlug,
+              signed_in: false,
+              surface: "pricing_card",
+            });
+            captureConversionEvent("signup_cta_clicked", {
+              plan_intent: planSlug,
+              surface: "pricing_card",
+            });
+            captureConversionEvent("signup_started", {
+              plan_intent: planSlug,
+              surface: "pricing_card",
+            });
+          }}
+        >
+          Start {planName}
+        </button>
       </SignUpButton>
     );
   }
@@ -149,6 +186,13 @@ function PlanAction({
       <Link
         href="/support"
         className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+        onClick={() => {
+          captureConversionEvent("support_contact_clicked", {
+            path: "/pricing",
+            reason: "billing_unavailable",
+            plan_intent: planSlug,
+          });
+        }}
       >
         Contact support
       </Link>
@@ -160,9 +204,26 @@ function PlanAction({
       for="user"
       planId={planId}
       planPeriod="month"
-      newSubscriptionRedirectUrl="/dashboard"
+      newSubscriptionRedirectUrl={`/dashboard?checkout=success&plan=${encodeURIComponent(planSlug)}`}
     >
-      <button type="button" className={className}>Start {planName}</button>
+      <button
+        type="button"
+        className={className}
+        onClick={() => {
+          captureConversionEvent("plan_cta_clicked", {
+            plan_slug: planSlug,
+            signed_in: true,
+            surface: "pricing_card",
+          });
+          captureConversionEvent("checkout_started", {
+            plan_slug: planSlug,
+            plan_period: "month",
+            source_path: "/pricing",
+          });
+        }}
+      >
+        Start {planName}
+      </button>
     </CheckoutButton>
   );
 }

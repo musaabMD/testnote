@@ -126,6 +126,15 @@ describe("quota exceeded avoids OpenRouter", () => {
     assert.ok(fileSizeCheck > adminBypass);
     assert.ok(monthlyUploadCheck > adminBypass);
   });
+
+  it("Next usage client bypasses Convex quota preflight for admins", () => {
+    const src = readFileSync(path.join(libDir, "convex-usage-client.server.ts"), "utf8");
+    const adminBypass = src.indexOf("isAdminUser({ clerkUserId: args.clerkUserId");
+    const convexClient = src.indexOf("new ConvexHttpClient", adminBypass);
+
+    assert.ok(adminBypass > -1);
+    assert.ok(convexClient > adminBypass);
+  });
 });
 
 describe("cache hit zero-cost policy", () => {

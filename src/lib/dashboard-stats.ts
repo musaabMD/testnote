@@ -64,7 +64,6 @@ export function computeOverallScore(files: PdfFileQueueItem[]): number {
   if (!files.length) return 0;
 
   const answers = loadQuizAnswers();
-  let totalQuestions = 0;
   let totalAnswered = 0;
   let totalCorrect = 0;
 
@@ -75,7 +74,6 @@ export function computeOverallScore(files: PdfFileQueueItem[]): number {
     const answered = Object.keys(fileAnswers).length;
     const correct = Object.values(fileAnswers).filter((item) => item.isCorrect).length;
 
-    totalQuestions += total;
     totalAnswered += answered;
     totalCorrect += correct;
   }

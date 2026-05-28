@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { after } from "next/server";
 import { storeSourceFileInConvex } from "@/lib/convex-source-file.server";
 import { enforceApiRateLimit } from "@/lib/api-rate-limit.server";
-import { createExtractionJob, updateExtractionJob } from "@/lib/extraction-job-store.server";
+import {
+  createExtractionJob,
+  getActiveExtractionJobForUpload,
+} from "@/lib/extraction-job-store.server";
 import { parseExtractionMode } from "@/lib/extraction-config";
 import { sha256FileBytes } from "@/lib/file-hash.server";
 import { getOpenRouterModel } from "@/lib/openrouter-client";
@@ -11,41 +13,46 @@ import {
   estimateUploadExtractionBatchCount,
   reserveCostUsd,
 } from "@/lib/plan-limits.server";
-import { runPdfMcqExtraction } from "@/lib/pdf-extraction.server";
 import { getQuotaSubjectDetails } from "@/lib/request-user.server";
 import { getPdfPageCountForUpload } from "@/lib/pdfjs-server.server";
 import { getStorageConfigErrorResponse } from "@/lib/server-storage.server";
+import {
+  createServerTiming,
+  logPerformanceEvent,
+} from "@/lib/server-timing.server";
 import { preflightTrackedAiCall } from "@/lib/tracked-openrouter.server";
 import {
   getUnsupportedUploadReason,
   inferUploadMimeType,
   isSupportedUploadFile,
 } from "@/lib/upload-file-types";
-import { sanitizeUserFacingError } from "@/lib/user-facing-error.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
+  const timing = createServerTiming();
   const rateLimited = await enforceApiRateLimit(request, "pdfExtract");
   if (rateLimited) return rateLimited;
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    return Response.json(
-      { error: "OPENROUTER_API_KEY is not configured on the server." },
-      { status: 500 },
-    );
-  }
-
-  const formData = await request.formData().catch(() => null);
+  const formData = await timing.measure("form_parse", () =>
+    request.formData().catch(() => null),
+  );
   if (!formData) {
-    return Response.json({ error: "Upload a supported file." }, { status: 400 });
+    return jsonWithTiming(
+      timing,
+      { error: "Upload a supported file." },
+      { status: 400 },
+    );
   }
 
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return Response.json({ error: "Upload a supported file." }, { status: 400 });
+    return jsonWithTiming(
+      timing,
+      { error: "Upload a supported file." },
+      { status: 400 },
+    );
   }
   const requestedFileName = formData.get("fileName");
   const displayFileName =
@@ -54,7 +61,8 @@ export async function POST(request: Request) {
       : file.name;
 
   if (!isSupportedUploadFile(file)) {
-    return Response.json(
+    return jsonWithTiming(
+      timing,
       {
         error:
           getUnsupportedUploadReason(file) ??
@@ -67,17 +75,22 @@ export async function POST(request: Request) {
 
   const serverUploadLimit = getServerUploadByteLimit();
   if (file.size > serverUploadLimit) {
-    return Response.json(
+    return jsonWithTiming(
+      timing,
       { error: "File is too large for this server." },
       { status: 413 },
     );
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const fileHash = await sha256FileBytes(arrayBuffer);
+  const arrayBuffer = await timing.measure("file_buffer", () => file.arrayBuffer());
+  const fileHash = await timing.measure("file_hash", () =>
+    sha256FileBytes(arrayBuffer),
+  );
   const mimeType = inferUploadMimeType(file);
   const extractionMode = parseExtractionMode(formData.get("extractionMode"));
-  const pageCount = await getPageCountForUpload(file, arrayBuffer, mimeType);
+  const pageCount = await timing.measure("page_count", () =>
+    getPageCountForUpload(file, arrayBuffer, mimeType),
+  );
   const quotaSubject = await getQuotaSubjectDetails(request);
   const clerkUserId = quotaSubject.clerkUserId;
   const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
@@ -89,20 +102,23 @@ export async function POST(request: Request) {
     }),
   );
 
-  const preflight = await preflightTrackedAiCall({
-    clerkUserId,
-    email: quotaSubject.email,
-    feature: "extract",
-    estimatedCostUsd,
-    estimatedPages: pageCount,
-    fileSizeBytes: file.size,
-    fileHash,
-    model,
-    reserve: false,
-  });
+  const preflight = await timing.measure("quota_preflight", () =>
+    preflightTrackedAiCall({
+      clerkUserId,
+      email: quotaSubject.email,
+      feature: "extract",
+      estimatedCostUsd,
+      estimatedPages: pageCount,
+      fileSizeBytes: file.size,
+      fileHash,
+      model,
+      reserve: false,
+    }),
+  );
 
   if (!preflight.allowed) {
-    return Response.json(
+    return jsonWithTiming(
+      timing,
       {
         error: preflight.reason ?? "Usage quota exceeded.",
         failureReason: "quota_exceeded",
@@ -113,55 +129,85 @@ export async function POST(request: Request) {
   }
 
   const jobId = randomUUID();
+  const activeJob = await timing.measure("active_job_lookup", () =>
+    getActiveExtractionJobForUpload({
+      fileHash,
+      extractionMode,
+      extractionModel: model,
+      clerkUserId,
+    }),
+  );
 
-  await createExtractionJob({
-    jobId,
-    fileHash,
-    fileName: displayFileName,
-    mimeType,
-    extractionMode,
-    extractionModel: model,
-    totalPages: pageCount,
-    clerkUserId,
-  });
+  if (activeJob) {
+    return jsonWithTiming(
+      timing,
+      {
+        jobId: activeJob.jobId,
+        status: activeJob.status,
+        fileHash: activeJob.fileHash,
+        fileName: activeJob.fileName ?? displayFileName,
+        pageCount: activeJob.totalPages || pageCount,
+        inFlightHit: true,
+      },
+      { status: 202 },
+    );
+  }
 
-  void storeSourceFileInConvex({
-    clerkUserId,
-    ownerEmail: quotaSubject.email,
-    fileHash,
-    fileName: displayFileName,
-    mimeType,
-    arrayBuffer,
-  });
+  const sourceStored = await timing.measure("source_store", () =>
+    storeSourceFileInConvex({
+      clerkUserId,
+      ownerEmail: quotaSubject.email,
+      fileHash,
+      fileName: displayFileName,
+      mimeType,
+      arrayBuffer,
+    }),
+  );
+
+  if (!sourceStored) {
+    return jsonWithTiming(
+      timing,
+      {
+        error:
+          "Could not persist the original file for durable extraction. Sign in and try again with a smaller file.",
+        failureReason: "source_file_missing",
+      },
+      { status: clerkUserId?.startsWith("anon:") ? 401 : 503 },
+    );
+  }
+
+  await timing.measure("job_create", () =>
+    createExtractionJob({
+      jobId,
+      fileHash,
+      fileName: displayFileName,
+      mimeType,
+      extractionMode,
+      extractionModel: model,
+      totalPages: pageCount,
+      clerkUserId,
+    }),
+  );
 
   try {
-    after(async () => {
-      try {
-        await runPdfMcqExtraction({
-          apiKey,
-          fileName: displayFileName,
-          mimeType,
-          arrayBuffer,
-          fileSizeBytes: file.size,
-          extractionMode,
-          fileHash,
-          pageCount,
-          clerkUserId,
-          email: quotaSubject.email,
-          jobId,
-        });
-      } catch (error) {
-        await updateExtractionJob(jobId, {
-          status: "failed",
-          failureReason: "unknown_transient_error",
-          error: sanitizeUserFacingError(
-            error instanceof Error ? error.message : undefined,
-          ),
-        });
+    void triggerExtractionWorker(request).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[upload] extraction worker trigger failed", error);
       }
     });
 
-    return Response.json(
+    logPerformanceEvent("upload_queued", {
+      fileSizeBytes: file.size,
+      pageCount,
+      mimeType,
+      extractionMode,
+      model,
+      status: "queued",
+      ...timing.summary(),
+    });
+
+    return jsonWithTiming(
+      timing,
       {
         jobId,
         status: "queued",
@@ -176,6 +222,30 @@ export async function POST(request: Request) {
     if (configError) return configError;
     throw error;
   }
+}
+
+async function triggerExtractionWorker(request: Request) {
+  const secret = process.env.CRON_SECRET ?? process.env.EXTRACTION_STORAGE_SECRET;
+  if (!secret) return;
+
+  await fetch(new URL("/api/pdf/mcqs/worker", request.url), {
+    cache: "no-store",
+    headers: {
+      authorization: `Bearer ${secret}`,
+    },
+  });
+}
+
+function jsonWithTiming(
+  timing: ReturnType<typeof createServerTiming>,
+  body: Parameters<typeof Response.json>[0],
+  init?: ResponseInit,
+) {
+  const headers = new Headers(init?.headers);
+  Object.entries(timing.headers()).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+  return Response.json(body, { ...init, headers });
 }
 
 const DEFAULT_SERVER_UPLOAD_BYTES = 500 * 1024 * 1024;

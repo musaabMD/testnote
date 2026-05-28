@@ -1,9 +1,9 @@
 import type { ExtractionMode } from "@/lib/quiz-settings";
 
 /** Bump when extraction logic/prompts change to invalidate cache entries. */
-export const APP_EXTRACTION_VERSION = "8";
-export const EXTRACTION_PROMPT_VERSION = "p2-source-first";
-export const EXTRACTION_SCHEMA_VERSION = "s2-source-first";
+export const APP_EXTRACTION_VERSION = "14";
+export const EXTRACTION_PROMPT_VERSION = "p8-mistral-ocr";
+export const EXTRACTION_SCHEMA_VERSION = "s3-page-audit-source-first";
 export const EXTRACTION_RENDER_VERSION = "r1";
 
 export function parseExtractionMode(value: FormDataEntryValue | null): ExtractionMode {

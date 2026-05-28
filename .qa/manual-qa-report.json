@@ -4,43 +4,55 @@
     "fileName": "01-one-page-text.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.165, 0.273]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.150, 0.285]",
+    "actual": "Q1 chunk p1_b1 y∈[0.150, 0.285]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 565
+    "renderMs": 1264
   },
   {
     "caseName": "one-page text-only PDF",
     "fileName": "01-one-page-text.pdf",
     "pageNumber": 1,
     "expected": "Q2 block y∈[0.330, 0.437]",
-    "actual": "Q2 chunk chunk_file_2 y∈[0.315, 0.449]",
+    "actual": "Q2 chunk p1_b2 y∈[0.315, 0.449]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 565
+    "renderMs": 1264
   },
   {
     "caseName": "multi-page text-only PDF",
     "fileName": "02-multi-page.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.102, 0.210]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.222]",
+    "actual": "Q1 chunk p1_b1 y∈[0.087, 0.222]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 7
+    "renderMs": 12
   },
   {
     "caseName": "multi-page text-only PDF",
     "fileName": "02-multi-page.pdf",
     "pageNumber": 2,
     "expected": "Q2 block y∈[0.102, 0.210]",
-    "actual": "Q2 chunk chunk_file_2 y∈[0.087, 0.222]",
+    "actual": "Q2 chunk p2_b1 y∈[0.087, 0.222]",
+    "passed": true,
+    "sourceKind": "question-block",
+    "method": "pdf-layout",
+    "confidence": 0.9,
+    "renderMs": 12
+  },
+  {
+    "caseName": "question near the bottom of a page",
+    "fileName": "03-bottom-question.pdf",
+    "pageNumber": 1,
+    "expected": "Q2 block y∈[0.835, 0.942]",
+    "actual": "Q2 chunk p1_b2 y∈[0.820, 0.954]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
@@ -48,112 +60,100 @@
     "renderMs": 7
   },
   {
-    "caseName": "question near the bottom of a page",
-    "fileName": "03-bottom-question.pdf",
-    "pageNumber": 1,
-    "expected": "Q2 block y∈[0.835, 0.942]",
-    "actual": "Q2 chunk chunk_file_2 y∈[0.820, 0.954]",
-    "passed": true,
-    "sourceKind": "question-block",
-    "method": "pdf-layout",
-    "confidence": 0.9,
-    "renderMs": 4
-  },
-  {
     "caseName": "question split across multiple lines",
     "fileName": "04-multiline-stem.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.128, 0.275]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.288]",
+    "actual": "Q1 chunk p1_b1 y∈[0.113, 0.288]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 4
+    "renderMs": 6
   },
   {
     "caseName": "question with image/diagram/table between stem and options",
     "fileName": "05-diagram-gap.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.102, 0.457]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.470]",
+    "actual": "Q1 chunk p1_b1 y∈[0.087, 0.470]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 4
+    "renderMs": 6
   },
   {
     "caseName": "two-column PDF",
     "fileName": "06-two-column.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.102, 0.210]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.087, 0.222]",
+    "actual": "Q1 chunk p1_b1 y∈[0.087, 0.222]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 4
+    "renderMs": 6
   },
   {
     "caseName": "two-column PDF",
     "fileName": "06-two-column.pdf",
     "pageNumber": 1,
     "expected": "Q2 block y∈[0.102, 0.210]",
-    "actual": "Q2 chunk chunk_file_2 y∈[0.087, 0.222]",
+    "actual": "Q2 chunk p1_b2 y∈[0.087, 0.222]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 4
+    "renderMs": 6
   },
   {
     "caseName": "PDF where options wrap onto multiple lines",
     "fileName": "07-wrapped-options.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.128, 0.223]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.236]",
+    "actual": "Q1 chunk p1_b1 y∈[0.113, 0.236]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 3
+    "renderMs": 7
   },
   {
     "caseName": "PDF with repeated/similar question text",
     "fileName": "08-similar-text.pdf",
     "pageNumber": 1,
     "expected": "Q1 block y∈[0.128, 0.235]",
-    "actual": "Q1 chunk chunk_file_1 y∈[0.113, 0.247]",
+    "actual": "Q1 chunk p1_b1 y∈[0.113, 0.247]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 3
+    "renderMs": 8
   },
   {
     "caseName": "PDF with repeated/similar question text",
     "fileName": "08-similar-text.pdf",
     "pageNumber": 1,
     "expected": "Q2 block y∈[0.330, 0.437]",
-    "actual": "Q2 chunk chunk_file_2 y∈[0.315, 0.449]",
+    "actual": "Q2 chunk p1_b2 y∈[0.315, 0.449]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 3
+    "renderMs": 8
   },
   {
     "caseName": "large PDF (500 pages)",
     "fileName": "11-large-500-pages.pdf",
     "pageNumber": 250,
     "expected": "Q99 block y∈[0.229, 0.336]",
-    "actual": "Q99 chunk chunk_file_1 y∈[0.214, 0.348]",
+    "actual": "Q99 chunk p250_b1 y∈[0.214, 0.348]",
     "passed": true,
     "sourceKind": "question-block",
     "method": "pdf-layout",
     "confidence": 0.9,
-    "renderMs": 146
+    "renderMs": 273
   },
   {
     "caseName": "missing sourceRegion",
@@ -204,7 +204,7 @@
     "fileName": "11-large-500-pages.pdf",
     "pageNumber": 250,
     "expected": "Extraction scans pages; UI renders one page on demand",
-    "actual": "500-page extraction 146ms; UI uses getPage(pageNumber) only",
+    "actual": "500-page extraction 273ms; UI uses getPage(pageNumber) only",
     "passed": true
   }
 ]

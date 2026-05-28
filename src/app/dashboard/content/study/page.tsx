@@ -16,6 +16,7 @@ import { useStudyFile } from "@/hooks/use-study-files";
 import { getSourcePreview, normalizeSourceRegion } from "@/lib/highlightable-source";
 import { resolveSourceFileForViewing } from "@/lib/resolve-source-file";
 import { convex } from "@/lib/convex-client";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { touchStudyActivity } from "@/lib/study-activity";
 import { getRawQuestionText } from "@/lib/question-text";
 import { api } from "../../../../../convex/_generated/api";
@@ -111,6 +112,11 @@ function PdfStudyPageContent() {
   function recordAnswer(questionId: string, answer: QuestionAnswer) {
     if (!file) return;
     touchStudyActivity();
+    captureConversionEvent("study_action_completed", {
+      action_type: mode,
+      file_id: file.id,
+      question_count: file.result.mcqs.length,
+    });
     void recordStudyActivity({});
     setQuizAnswers((current) => {
       const next = {

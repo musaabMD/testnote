@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 
 type UpgradePromptProps = {
   title?: string;
@@ -21,6 +22,12 @@ export function UpgradePrompt({
       <Link
         href="/pricing"
         className="mt-3 inline-flex items-center rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
+        onClick={() => {
+          captureConversionEvent("plan_cta_clicked", {
+            surface: "paid_feature_gate",
+            title,
+          });
+        }}
       >
         View plans
       </Link>

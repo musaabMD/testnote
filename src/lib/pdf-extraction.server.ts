@@ -47,9 +47,10 @@ import {
   updateExtractionJob,
 } from "@/lib/extraction-job-store.server";
 import { validateMcqExtractionResponse } from "@/lib/mcq-result-validation.server";
-import { type PdfMcq, type PdfMcqResult } from "@/lib/pdf-mcqs";
-import { extractSourceChunksFromPdf } from "@/lib/pdfjs-server.server";
+import { coercePdfMcqResult, type PdfMcq, type PdfMcqResult } from "@/lib/pdf-mcqs";
+import { extractSourceChunksFromPdf, extractSourcePagePacksFromPdf } from "@/lib/pdfjs-server.server";
 import { mapChunkIdsToMcqRegions } from "@/lib/pdf-source-chunks.server";
+import type { SourcePagePack } from "@/lib/pdf-source-chunks.server";
 import {
   countQuestionCandidateSignals,
   hasQuestionIntent,
@@ -71,6 +72,8 @@ import type { ExtractionMode } from "@/lib/quiz-settings";
 import { formatOptionText, formatQuestionText } from "@/lib/question-text";
 import { normalizeImageRegion } from "@/lib/pdf-question-images";
 import { attachServerSourcePreviews } from "@/lib/source-preview-store.server";
+import { isMistralOcrAvailable, runMistralOcr } from "@/lib/mistral-ocr.server";
+import { ocrPagesToSourceChunks } from "@/lib/ocr-chunks";
 
 export type { ExtractionFailureReason } from "@/lib/extraction-failure.server";
 
@@ -128,6 +131,32 @@ type McqFilePayload = {
   file_data: string;
 };
 
+type FileIntelligence = {
+  document_summary: {
+    file_name: string;
+    detected_title_or_exam_name: string | null;
+    detected_subject: string | null;
+    detected_language: string[];
+    document_type: string;
+    has_existing_questions: boolean;
+    needs_generated_questions: boolean;
+    total_pages_received: number;
+    estimated_distinct_question_count: number;
+    confidence: number;
+  };
+  page_audit: Array<{
+    page_number: number;
+    page_role: string;
+    has_questions: boolean;
+    estimated_question_count: number;
+    question_markers_found: string[];
+    important_notes: string;
+    should_extract_questions: boolean;
+    confidence: number;
+  }>;
+  global_warnings: string[];
+};
+
 type ExtractionRunContext = {
   fileHash: string;
   fileName: string;
@@ -175,9 +204,15 @@ function dynamicExtractionMaxTokens(args: {
   pageCount: number;
   estimatedQuestionCount?: number;
 }) {
+  // pageCount=1 can arrive from a client-side PDF.js worker failure. If the probe
+  // has already corrected it this will be a real page count. Either way, clamp the
+  // lower end of the estimate so a bad pageCount never silences the model output.
+  const safePageCount = Math.max(args.pageCount, 4); // treat every file as at least 4 pages
   const estimatedQuestionCount =
-    args.estimatedQuestionCount ?? Math.max(4, Math.min(24, args.pageCount * 4));
-  return Math.min(args.configuredMaxTokens, estimatedQuestionCount * 260 + 800, 12_000);
+    args.estimatedQuestionCount ?? Math.max(8, Math.min(60, safePageCount * 4));
+  // 500 tokens per question + 3000 overhead; never less than 10000 so even a small
+  // file gets enough budget and a wrong pageCount can't cause questions to be dropped.
+  return Math.min(args.configuredMaxTokens, Math.max(10000, estimatedQuestionCount * 500 + 3000));
 }
 
 function warnOnSuspiciousExtractionCost(args: {
@@ -362,6 +397,44 @@ async function extractPdfChunksWithRetry(args: {
   return [];
 }
 
+async function extractPdfPagePacksWithRetry(args: {
+  arrayBuffer: ArrayBuffer;
+  fileHash: string;
+  probe: PdfTextProbeResult;
+}): Promise<SourcePagePack[]> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const pages = await extractSourcePagePacksFromPdf(args.arrayBuffer, args.fileHash);
+      if (pages.some((page) => page.pageText.trim() || page.blocks.length > 0)) {
+        return pages;
+      }
+
+      if (hasSelectableText(args.probe) && attempt < 2) {
+        await jitteredDelay(300, 700);
+        continue;
+      }
+      return pages;
+    } catch (error) {
+      lastError = error;
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[pdf-extraction] page-pack extraction attempt failed:", error);
+      }
+      if (attempt < 2) {
+        await jitteredDelay(300, 700);
+        continue;
+      }
+    }
+  }
+
+  if (lastError && process.env.NODE_ENV === "development") {
+    console.warn("[pdf-extraction] page-pack extraction exhausted retries:", lastError);
+  }
+
+  return [];
+}
+
 export async function runPdfMcqExtraction(args: {
   apiKey: string;
   fileName: string;
@@ -417,11 +490,13 @@ async function runPdfMcqExtractionCore(args: {
     arrayBuffer,
     extractionMode,
     fileHash,
-    pageCount,
     clerkUserId,
   } = args;
+  // pageCount may be wrong (client PDF.js worker failure returns 1).
+  // We re-assign it after the server-side probe corrects it.
+  let pageCount = args.pageCount;
   const model = getOpenRouterModel("OPENROUTER_EXTRACTION_MODEL");
-  const configuredMaxTokens = getOpenRouterMaxTokens("OPENROUTER_EXTRACTION_MAX_TOKENS", 8000);
+  const configuredMaxTokens = getOpenRouterMaxTokens("OPENROUTER_EXTRACTION_MAX_TOKENS", 16000);
   const repairModel = getExtractionRepairModel();
   const cacheKey = buildExtractionCacheKey(fileHash, extractionMode, model);
   const extractionKey = extractionCacheKeyId(cacheKey);
@@ -538,6 +613,7 @@ async function runPdfMcqExtractionCore(args: {
     mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
 
   let sourceChunks: SourceChunk[] = [];
+  let sourcePagePacks: SourcePagePack[] = [];
 
   if (isPdf) {
     let probe = await probePdfSelectableText(arrayBuffer);
@@ -554,11 +630,59 @@ async function runPdfMcqExtractionCore(args: {
       console.warn("[pdf-extraction] PDF probe failed; falling back to full-file extraction:", probe.probeError);
     }
 
-    sourceChunks = await extractPdfChunksWithRetry({
+    // Fix: correct a wrong client-provided pageCount using the server-side probe.
+    // The browser PDF.js worker (/pdf.worker.mjs) frequently fails to load, causing
+    // the client to fall back to pageCount=1. The server probe uses the Node.js
+    // legacy pdfjs worker and is the authoritative source of truth.
+    if (probe.pdfOpened && probe.pageCount > pageCount) {
+      console.info("[pdf-extraction] correcting pageCount from client-provided value", {
+        clientPageCount: pageCount,
+        serverPageCount: probe.pageCount,
+        fileHash,
+      });
+      pageCount = probe.pageCount;
+      runCtx.pageCount = probe.pageCount;
+    }
+
+    sourcePagePacks = await extractPdfPagePacksWithRetry({
       arrayBuffer,
       fileHash,
       probe,
     });
+
+    sourceChunks = sourcePagePacks.flatMap((page) => page.blocks);
+
+    if (!sourceChunks.length) {
+      sourceChunks = await extractPdfChunksWithRetry({
+        arrayBuffer,
+        fileHash,
+        probe,
+      });
+      sourcePagePacks = sourceChunksToPagePacks(sourceChunks, fileHash, pageCount);
+    }
+
+    // If the PDF has no selectable text (e.g. scanned / image-based), use
+    // Mistral OCR to extract per-page markdown before falling back to the
+    // full-file multimodal path.  OCR results are cached on disk in dev so
+    // subsequent runs are instant and free.
+    if (sourceChunks.length === 0 && isMistralOcrAvailable()) {
+      const ocrResult = await runMistralOcr(arrayBuffer, fileHash, fileName);
+      if (ocrResult && ocrResult.pages.length > 0) {
+        sourceChunks = ocrPagesToSourceChunks(ocrResult.pages, fileHash);
+        sourcePagePacks = sourceChunksToPagePacks(sourceChunks, fileHash, pageCount);
+        // OCR page count is authoritative for scanned documents
+        if (ocrResult.pages.length > pageCount) {
+          pageCount = ocrResult.pages.length;
+          runCtx.pageCount = ocrResult.pages.length;
+        }
+        console.info("[pdf-extraction] using Mistral OCR chunks", {
+          fileHash,
+          ocrPageCount: ocrResult.pages.length,
+          chunkCount: sourceChunks.length,
+        });
+      }
+    }
+
     runCtx.sourceChunksCount = sourceChunks.length;
     await recordPageScanProgress({
       jobId: job.id,
@@ -647,32 +771,93 @@ async function runPdfMcqExtractionCore(args: {
 
   if (sourceChunks.length > 0) {
     runCtx.openRouterCalled = true;
-    const chunkExtraction = await runChunkBatchedExtraction({
+    const intelligence = sourcePagePacks.length
+      ? await runFileIntelligence({
+          apiKey,
+          model,
+          fileName,
+          pagePacks: sourcePagePacks,
+          trackingCtx,
+        })
+      : buildFallbackFileIntelligence(fileName, pageCount, sourceChunks);
+    await recordFileIntelligenceProgress({
+      jobId: job.id,
+      fileHash,
+      clerkUserId,
+      pageCount,
+      sourceChunks,
+      intelligence,
+    });
+    const extractionChunks = selectChunksForIntelligence(sourceChunks, intelligence);
+    const selectedExtractionChunks = extractionChunks.length ? extractionChunks : sourceChunks;
+    const contextChunks = buildPageContextChunks(sourceChunks);
+    const selectedContextChunks = selectChunksForIntelligence(contextChunks, intelligence);
+    const sourceChunksForSources = contextChunks.length
+      ? [...sourceChunks, ...contextChunks]
+      : sourceChunks;
+    const chunkExtraction = await runPageLevelExtraction({
       apiKey,
       model,
       maxTokens: dynamicExtractionMaxTokens({
         configuredMaxTokens,
         pageCount,
-        estimatedQuestionCount: sourceChunks.length,
+        estimatedQuestionCount: Math.max(
+          intelligence.document_summary.estimated_distinct_question_count,
+          selectedExtractionChunks.length,
+        ),
       }),
       repairModel,
       extractionMode,
-      sourceChunks,
+      sourceChunks: selectedExtractionChunks,
       jobId: job.id,
       trackingCtx,
       runCtx,
     });
 
     if (!("failureReason" in chunkExtraction) && chunkExtraction.mcqs.length > 0) {
-      mapChunkIdsToMcqRegions(chunkExtraction.mcqs, sourceChunks);
+      mapChunkIdsToMcqRegions(chunkExtraction.mcqs, sourceChunksForSources);
 
-      const normalized = normalizeResult(chunkExtraction);
+      let normalized = normalizeResult(chunkExtraction);
+      normalized = await runSupplementalWindowExtractionIfShort({
+        apiKey,
+        model,
+        repairModel,
+        maxTokens: dynamicExtractionMaxTokens({
+          configuredMaxTokens,
+          pageCount,
+          estimatedQuestionCount: intelligence.document_summary.estimated_distinct_question_count,
+        }),
+        extractionMode,
+        intelligence,
+        sourceChunks: selectedContextChunks.length ? selectedContextChunks : contextChunks,
+        allSourceChunks: sourceChunksForSources,
+        current: normalized,
+        jobId: job.id,
+        trackingCtx,
+        runCtx,
+      });
+      normalized = await repairPagesBelowIntelligence({
+        apiKey,
+        model,
+        repairModel,
+        maxTokens: dynamicExtractionMaxTokens({
+          configuredMaxTokens,
+          pageCount,
+          estimatedQuestionCount: intelligence.document_summary.estimated_distinct_question_count,
+        }),
+        intelligence,
+        sourceChunks: sourceChunksForSources,
+        current: normalized,
+        trackingCtx,
+      });
+      mapChunkIdsToMcqRegions(normalized.mcqs, sourceChunksForSources);
       await recordPageExtractionAudits({
         jobId: job.id,
         fileHash,
         pageCount,
-        sourceChunks,
+        sourceChunks: sourceChunksForSources,
         result: normalized,
+        intelligence,
         retryCount: runCtx.failedBatchIndexes?.length ?? 0,
       });
       const finalized = await finalizeExtraction({
@@ -684,7 +869,7 @@ async function runPdfMcqExtractionCore(args: {
         clerkUserId,
         pageCount,
         normalized,
-        sourceChunks,
+        sourceChunks: sourceChunksForSources,
         jobId: job.id,
         reservationId: trackingCtx.reservationId,
         runCtx,
@@ -707,10 +892,14 @@ async function runPdfMcqExtractionCore(args: {
   }
 
   runCtx.openRouterCalled = true;
+  // In full-file mode the ENTIRE document is sent in one shot — use the maximum
+  // configured token budget so long documents are not silently truncated.
+  // (dynamicExtractionMaxTokens would cap this too low for multi-page PDFs that
+  // arrived with a wrong pageCount=1 from the client.)
   const fullFileResult = await runFullFileExtraction({
     apiKey,
     model,
-    maxTokens: dynamicExtractionMaxTokens({ configuredMaxTokens, pageCount }),
+    maxTokens: configuredMaxTokens,
     repairModel,
     extractionMode,
     fileName,
@@ -779,24 +968,689 @@ async function recordPageScanProgress(args: {
   }
 }
 
+function sourceChunksToPagePacks(
+  sourceChunks: SourceChunk[],
+  documentId: string,
+  pageCount: number,
+): SourcePagePack[] {
+  const chunksByPage = groupChunksByPage(sourceChunks);
+  const pages: SourcePagePack[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const blocks = chunksByPage.get(pageNumber) ?? [];
+    pages.push({
+      documentId,
+      pageNumber,
+      pageText: blocks.map((chunk) => chunk.text).join("\n\n").trim(),
+      blocks,
+    });
+  }
+
+  return pages;
+}
+
+function selectChunksForIntelligence(
+  sourceChunks: SourceChunk[],
+  intelligence: FileIntelligence,
+): SourceChunk[] {
+  const pagesToExtract = new Set(
+    intelligence.page_audit
+      .filter(
+        (page) =>
+          page.should_extract_questions ||
+          page.has_questions ||
+          page.estimated_question_count > 0,
+      )
+      .map((page) => page.page_number),
+  );
+
+  if (!pagesToExtract.size && intelligence.document_summary.has_existing_questions) {
+    return sourceChunks;
+  }
+
+  return sourceChunks.filter((chunk) => pagesToExtract.has(chunk.pageNumber));
+}
+
+function buildPageContextChunks(sourceChunks: SourceChunk[]): SourceChunk[] {
+  const windows: SourceChunk[] = [];
+  const chunksByPage = groupChunksByPage(sourceChunks);
+
+  for (const [pageNumber, pageChunks] of chunksByPage.entries()) {
+    const sorted = [...pageChunks].sort((a, b) => {
+      const yDiff = (a.region?.y ?? 0) - (b.region?.y ?? 0);
+      if (Math.abs(yDiff) > 0.005) return yDiff;
+      return (a.region?.x ?? 0) - (b.region?.x ?? 0);
+    });
+    if (sorted.length < 4) continue;
+
+    const windowSize = sorted.length <= 12 ? sorted.length : 12;
+    const step = sorted.length <= 12 ? windowSize : 6;
+    let windowIndex = 0;
+
+    for (let start = 0; start < sorted.length; start += step) {
+      const slice = sorted.slice(start, Math.min(sorted.length, start + windowSize));
+      if (slice.length < 3) continue;
+      const text = slice.map((chunk) => chunk.text).join("\n").trim();
+      if (text.length < 40) continue;
+
+      windowIndex += 1;
+      windows.push({
+        id: `p${pageNumber}_ctx${windowIndex}`,
+        fileId: slice[0]?.fileId,
+        pageNumber,
+        text,
+        region: unionChunkRegions(pageNumber, slice),
+      });
+
+      if (start + windowSize >= sorted.length) break;
+    }
+  }
+
+  return windows;
+}
+
+function unionChunkRegions(
+  pageNumber: number,
+  chunks: SourceChunk[],
+): SourceChunk["region"] {
+  const regions = chunks.map((chunk) => chunk.region).filter(Boolean);
+  if (!regions.length) {
+    return {
+      pageNumber,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      sourceKind: "page",
+      method: "pdf-layout",
+      confidence: 0.4,
+    };
+  }
+
+  let minX = 1;
+  let minY = 1;
+  let maxX = 0;
+  let maxY = 0;
+  let confidence = 1;
+
+  for (const region of regions) {
+    minX = Math.min(minX, region.x);
+    minY = Math.min(minY, region.y);
+    maxX = Math.max(maxX, region.x + region.width);
+    maxY = Math.max(maxY, region.y + region.height);
+    confidence = Math.min(confidence, region.confidence ?? 0.82);
+  }
+
+  return {
+    pageNumber,
+    x: clamp01(minX),
+    y: clamp01(minY),
+    width: Math.min(clamp01(maxX - minX), 1 - clamp01(minX)),
+    height: Math.min(clamp01(maxY - minY), 1 - clamp01(minY)),
+    sourceKind: "question-block",
+    method: "pdf-layout",
+    confidence,
+  };
+}
+
+async function runFileIntelligence(args: {
+  apiKey: string;
+  model: string;
+  fileName: string;
+  pagePacks: SourcePagePack[];
+  trackingCtx: TrackedOpenRouterContext;
+}): Promise<FileIntelligence> {
+  const body = JSON.stringify({
+    model: args.model,
+    temperature: 0,
+    top_p: 0.1,
+    max_tokens: Math.min(8000, Math.max(2500, args.pagePacks.length * 450 + 1800)),
+    response_format: { type: "json_object" },
+    plugins: [{ id: "response-healing" }],
+    messages: [
+      { role: "system", content: buildFileIntelligenceSystemPrompt() },
+      {
+        role: "user",
+        content: `Analyze this uploaded file for DrNote.
+
+Input pages:
+${JSON.stringify({
+  document_id: args.pagePacks[0]?.documentId ?? "current_upload",
+  file_name: args.fileName,
+  pages: pagePacksToModelInput(args.pagePacks),
+})}
+
+Return JSON only.`,
+      },
+    ],
+  });
+
+  const { response, data: rawData } = await trackedOpenRouterFetch(
+    args.trackingCtx,
+    args.model,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000/pdf",
+        "X-Title": "TestNote PDF File Intelligence",
+      },
+      body,
+    },
+  );
+
+  if (!response.ok) {
+    const data = rawData as OpenRouterResponse | null;
+    console.warn(
+      "[pdf-file-intelligence] OpenRouter request failed:",
+      data?.error?.message ?? response.status,
+    );
+    return buildFallbackFileIntelligence(
+      args.fileName,
+      args.pagePacks.length,
+      args.pagePacks.flatMap((page) => page.blocks),
+    );
+  }
+
+  try {
+    const data = rawData as OpenRouterResponse | null;
+    const rawContent = extractOpenRouterContent(data?.choices?.[0]?.message?.content);
+    const parsed = parseJsonFromModel(rawContent);
+    return coerceFileIntelligence(
+      parsed,
+      args.fileName,
+      args.pagePacks.length,
+      args.pagePacks.flatMap((page) => page.blocks),
+    );
+  } catch (error) {
+    console.warn("[pdf-file-intelligence] Failed to parse intelligence response:", error);
+    return buildFallbackFileIntelligence(
+      args.fileName,
+      args.pagePacks.length,
+      args.pagePacks.flatMap((page) => page.blocks),
+    );
+  }
+}
+
+function pagePacksToModelInput(pagePacks: SourcePagePack[]) {
+  return pagePacks.map((page) => ({
+    page_number: page.pageNumber,
+    page_text: page.pageText,
+    blocks: page.blocks.map((block) => ({
+      block_id: block.id,
+      text: block.text,
+      bbox: block.region
+        ? [block.region.x, block.region.y, block.region.width, block.region.height]
+        : undefined,
+    })),
+  }));
+}
+
+function buildFileIntelligenceSystemPrompt() {
+  return `You are DrNote File Intelligence Engine.
+
+Your job is to understand uploaded study files.
+
+You will receive parsed PDF/OCR pages. Analyze the document like a careful human reader.
+
+Goals:
+1. Identify what kind of file this is.
+2. Detect whether it already contains questions.
+3. Estimate the number of distinct questions.
+4. Identify the likely exam/course/topic name if present.
+5. Summarize what each page contains.
+6. Mark which pages should be sent to question extraction.
+7. Do not miss questions because of formatting.
+
+Important rules:
+- Read the FULL page text of EVERY page before estimating. Do not stop early.
+- FIRST scan every page for the highest question number you can find (e.g. "12." or "Q12"), then use that as your minimum estimate for the whole file.
+- First count questions from the whole file as a human examiner would, then classify pages.
+- Treat the estimated count as an audit target for extraction, not as a guess copied from later extraction.
+- Count real study/exam questions, including clinical vignettes, MCQs, recall questions, and prompts followed by options.
+- A question may begin with a number, a patient scenario, "Which of the following," "What is the most appropriate," "Most likely diagnosis," or may be followed by A/B/C/D options.
+- If you see question numbers running from 1 to N (e.g. "1.", "2.", ..., "12."), estimate N questions even if some are partially visible or formatted strangely.
+- Mark every page that contains ANY numbered question as should_extract_questions=true. Do not skip a page because only part of a question is on it.
+- Do not count page numbers, headings, Telegram links, watermarks, explanations, score notes, or random numbered lists.
+- If the same question appears twice, count it once.
+- If text is messy, estimate but lower confidence.
+- Never invent a question count with high confidence when the page is unclear.
+
+EXAM RECALL DOCUMENT RULES (apply when the document looks like student notes or a recall file):
+- A recall document has bullet points (•), dashes (-), and informal prose mixed together — every bullet is a question candidate.
+- Do NOT count only numbered items. In recall docs, most questions have no number.
+- A short colored/underlined phrase immediately after a question is the ANSWER, not a new question. Do not count it as a question.
+- Section headers like "Non-Communicable Diseases", "Communicable Diseases", "Clinical Preventive Services", "Maternal and Child Health", "Environmental and Occupational", "Epidemiology Biostatistics Demography" are NOT questions — they are subject area dividers.
+- Explanation paragraphs (long text after an answer, often citing CDC/WHO/USPSTF URLs) are NOT questions.
+- "Multiple questions about X" or "3 questions about Y" in the text = count those as stated (minimum 3 if "multiple").
+- Arabic text mixed with English is part of the question — do not skip it.
+- A recall document covering a full board exam (40–55 pages) typically contains 120–200 questions. A count below 80 is almost certainly wrong.
+- Detect recall documents by: mixed bullet/prose/numbered formatting, phrases like "I don't remember the choices", "answer:", "I think", "(mostly this is the answer)", memory hedges from the author.
+- When detected as exam_recall, set document_type to "exam_recall" in the output.
+
+Return valid JSON only. No markdown. No explanation outside JSON.
+
+Return this exact structure:
+{"document_summary":{"file_name":"","detected_title_or_exam_name":null,"detected_subject":null,"detected_language":[],"document_type":"unknown","has_existing_questions":false,"needs_generated_questions":false,"total_pages_received":0,"estimated_distinct_question_count":0,"confidence":0},"page_audit":[{"page_number":1,"page_role":"unknown","has_questions":false,"estimated_question_count":0,"question_markers_found":[],"important_notes":"","should_extract_questions":false,"confidence":0}],"global_warnings":[]}`;
+}
+
+function coerceFileIntelligence(
+  value: unknown,
+  fileName: string,
+  pageCount: number,
+  sourceChunks: SourceChunk[],
+): FileIntelligence {
+  const fallback = buildFallbackFileIntelligence(fileName, pageCount, sourceChunks);
+  const root = isPlainObject(value) ? value : {};
+  const summary = isPlainObject(root.document_summary) ? root.document_summary : {};
+  const rawAudit = Array.isArray(root.page_audit) ? root.page_audit : [];
+  const fallbackByPage = new Map(
+    fallback.page_audit.map((page) => [page.page_number, page]),
+  );
+
+  const pageAudit = Array.from({ length: pageCount }, (_, index) => {
+    const pageNumber = index + 1;
+    const raw = rawAudit.find(
+      (entry) =>
+        isPlainObject(entry) &&
+        Math.round(asFiniteNumber(entry.page_number, pageNumber)) === pageNumber,
+    );
+    const fallbackPage = fallbackByPage.get(pageNumber)!;
+    if (!isPlainObject(raw)) return fallbackPage;
+
+    const estimated = Math.max(
+      0,
+      Math.round(asFiniteNumber(raw.estimated_question_count, fallbackPage.estimated_question_count)),
+    );
+    const hasQuestions = Boolean(raw.has_questions ?? estimated > 0);
+
+    return {
+      page_number: pageNumber,
+      page_role: asTrimmedString(raw.page_role) || fallbackPage.page_role,
+      has_questions: hasQuestions,
+      estimated_question_count: estimated,
+      question_markers_found: asStringList(raw.question_markers_found),
+      important_notes: asTrimmedString(raw.important_notes),
+      should_extract_questions: Boolean(
+        raw.should_extract_questions ?? hasQuestions ?? estimated > 0,
+      ),
+      confidence: clamp01(
+        asFiniteNumber(raw.confidence, fallbackPage.confidence),
+      ),
+    };
+  });
+
+  const estimatedTotal = pageAudit.reduce(
+    (total, page) => total + page.estimated_question_count,
+    0,
+  );
+
+  return {
+    document_summary: {
+      file_name: asTrimmedString(summary.file_name) || fileName,
+      detected_title_or_exam_name:
+        nullableTrimmedString(summary.detected_title_or_exam_name),
+      detected_subject: nullableTrimmedString(summary.detected_subject),
+      detected_language: asStringList(summary.detected_language),
+      document_type: asTrimmedString(summary.document_type) || "unknown",
+      has_existing_questions: Boolean(
+        summary.has_existing_questions ?? pageAudit.some((page) => page.has_questions),
+      ),
+      needs_generated_questions: Boolean(summary.needs_generated_questions ?? estimatedTotal === 0),
+      total_pages_received: Math.max(
+        pageCount,
+        Math.round(asFiniteNumber(summary.total_pages_received, pageCount)),
+      ),
+      estimated_distinct_question_count: Math.max(
+        estimatedTotal,
+        Math.round(
+          asFiniteNumber(summary.estimated_distinct_question_count, estimatedTotal),
+        ),
+      ),
+      confidence: clamp01(asFiniteNumber(summary.confidence, fallback.document_summary.confidence)),
+    },
+    page_audit: pageAudit,
+    global_warnings: asStringList(root.global_warnings),
+  };
+}
+
+function buildFallbackFileIntelligence(
+  fileName: string,
+  pageCount: number,
+  sourceChunks: SourceChunk[],
+): FileIntelligence {
+  const chunksByPage = groupChunksByPage(sourceChunks);
+  const page_audit = Array.from({ length: pageCount }, (_, index) => {
+    const pageNumber = index + 1;
+    const chunks = chunksByPage.get(pageNumber) ?? [];
+    const questionLike = chunks.filter((chunk) => chunkLooksLikeQuestion(chunk.text));
+    const hasQuestions = questionLike.length > 0;
+    return {
+      page_number: pageNumber,
+      page_role: hasQuestions ? "question_page" : chunks.length ? "study_content" : "unknown",
+      has_questions: hasQuestions,
+      estimated_question_count: questionLike.length,
+      question_markers_found: questionLike.slice(0, 6).map((chunk) => chunk.text.slice(0, 80)),
+      important_notes: hasQuestions
+        ? "Fallback heuristic detected question-like text."
+        : "",
+      should_extract_questions: hasQuestions,
+      confidence: hasQuestions ? 0.45 : 0.25,
+    };
+  });
+  const estimatedTotal = page_audit.reduce(
+    (total, page) => total + page.estimated_question_count,
+    0,
+  );
+
+  return {
+    document_summary: {
+      file_name: fileName,
+      detected_title_or_exam_name: null,
+      detected_subject: null,
+      detected_language: [],
+      document_type: "unknown",
+      has_existing_questions: estimatedTotal > 0,
+      needs_generated_questions: estimatedTotal === 0,
+      total_pages_received: pageCount,
+      estimated_distinct_question_count: estimatedTotal,
+      confidence: estimatedTotal > 0 ? 0.45 : 0.25,
+    },
+    page_audit,
+    global_warnings: ["file_intelligence_fallback_used"],
+  };
+}
+
+async function recordFileIntelligenceProgress(args: {
+  jobId: string;
+  fileHash: string;
+  clerkUserId: string;
+  pageCount: number;
+  sourceChunks: SourceChunk[];
+  intelligence: FileIntelligence;
+}) {
+  const chunksByPage = groupChunksByPage(args.sourceChunks);
+  const auditByPage = new Map(
+    args.intelligence.page_audit.map((page) => [page.page_number, page]),
+  );
+
+  for (let pageIndex = 0; pageIndex < args.pageCount; pageIndex += 1) {
+    const pageNumber = pageIndex + 1;
+    const chunks = chunksByPage.get(pageNumber) ?? [];
+    const audit = auditByPage.get(pageNumber);
+    const candidateQuestionCount = audit?.estimated_question_count ?? 0;
+
+    await upsertExtractionPage({
+      jobId: args.jobId,
+      fileHash: args.fileHash,
+      clerkUserId: args.clerkUserId,
+      pageIndex,
+      text: chunks.map((chunk) => chunk.text).join("\n\n").slice(0, 80_000),
+      mode: pageAuditMode(audit),
+      candidateQuestionCount,
+      status: audit?.should_extract_questions ? "processing" : "done",
+    });
+  }
+}
+
+async function repairPagesBelowIntelligence(args: {
+  apiKey: string;
+  model: string;
+  repairModel: string;
+  maxTokens: number;
+  intelligence: FileIntelligence;
+  sourceChunks: SourceChunk[];
+  current: PdfMcqResult;
+  trackingCtx: TrackedOpenRouterContext;
+}): Promise<PdfMcqResult> {
+  let result = args.current;
+  const chunksByPage = groupChunksByPage(args.sourceChunks);
+
+  for (const page of args.intelligence.page_audit) {
+    const expected = Math.max(0, page.estimated_question_count);
+    if (!page.should_extract_questions && !page.has_questions && expected === 0) continue;
+
+    const actual = countExtractedForPage(result, page.page_number, args.sourceChunks);
+    const globalExpected =
+      args.intelligence.document_summary.estimated_distinct_question_count;
+    const globalShortfall = globalExpected > result.mcqs.length;
+    if (expected > 0 && actual >= expected && !globalShortfall) continue;
+    if (expected === 0 && !globalShortfall) continue;
+
+    const pageChunks = chunksByPage.get(page.page_number) ?? [];
+    if (!pageChunks.length) continue;
+
+    const repair = await requestPageRepairExtraction({
+      apiKey: args.apiKey,
+      model: args.repairModel || args.model,
+      maxTokens: args.maxTokens,
+      pageNumber: page.page_number,
+      expectedQuestionCount: Math.max(expected, actual + 1),
+      chunks: pageChunks,
+      existingQuestions: result.mcqs.filter((mcq) =>
+        mcqBelongsToPage(mcq, page.page_number, args.sourceChunks),
+      ),
+      trackingCtx: args.trackingCtx,
+    });
+
+    if (!repair.mcqs.length) continue;
+    result = repairMissingSourceChunkIds(
+      mergeBatchResults([result, repair]),
+      args.sourceChunks,
+    );
+  }
+
+  return result;
+}
+
+async function runSupplementalWindowExtractionIfShort(args: {
+  apiKey: string;
+  model: string;
+  repairModel: string;
+  maxTokens: number;
+  extractionMode: ExtractionMode;
+  intelligence: FileIntelligence;
+  sourceChunks: SourceChunk[];
+  allSourceChunks: SourceChunk[];
+  current: PdfMcqResult;
+  jobId: string;
+  trackingCtx: TrackedOpenRouterContext;
+  runCtx: ExtractionRunContext;
+}): Promise<PdfMcqResult> {
+  if (!args.sourceChunks.length) return args.current;
+
+  const expected = args.intelligence.document_summary.estimated_distinct_question_count;
+  const intelligenceConfidence = args.intelligence.document_summary.confidence;
+  // Only skip supplemental if intelligence was confident AND we already met its estimate.
+  // Low-confidence estimates frequently undercount — keep going to catch missed questions.
+  if (expected > 0 && args.current.mcqs.length >= expected && intelligenceConfidence >= 0.75) {
+    return args.current;
+  }
+
+  const supplementalResults: PdfMcqResult[] = [];
+  for (const batch of splitChunksIntoBatches(args.sourceChunks)) {
+    const result = await extractBatchWithSplitRetry({
+      apiKey: args.apiKey,
+      model: args.model,
+      repairModel: args.repairModel,
+      maxTokens: args.maxTokens,
+      mode:
+        args.extractionMode === "choices-provided" ||
+        args.extractionMode === "extract-only"
+          ? "make-choices"
+          : args.extractionMode,
+      relaxed: true,
+      chunks: batch.chunks,
+      trackingCtx: args.trackingCtx,
+    });
+    if (!("failureReason" in result)) {
+      supplementalResults.push(result);
+    }
+  }
+
+  if (!supplementalResults.length) return args.current;
+
+  const supplemental = mergeBatchResults(supplementalResults);
+  if (!supplemental.mcqs.length) return args.current;
+
+  mapChunkIdsToMcqRegions(supplemental.mcqs, args.allSourceChunks);
+  return repairMissingSourceChunkIds(
+    mergeBatchResults([args.current, normalizeResult(supplemental)]),
+    args.allSourceChunks,
+  );
+}
+
+async function requestPageRepairExtraction(args: {
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  pageNumber: number;
+  expectedQuestionCount: number;
+  chunks: SourceChunk[];
+  existingQuestions: PdfMcq[];
+  trackingCtx: TrackedOpenRouterContext;
+}): Promise<PdfMcqResult> {
+  const blocks = args.chunks.map((chunk) => ({
+    block_id: chunk.id,
+    page_number: chunk.pageNumber,
+    text: chunk.text,
+    bbox: chunk.region
+      ? [chunk.region.x, chunk.region.y, chunk.region.width, chunk.region.height]
+      : undefined,
+  }));
+  const body = JSON.stringify({
+    model: args.model,
+    temperature: 0,
+    top_p: 0.1,
+    max_tokens: args.maxTokens,
+    response_format: { type: "json_object" },
+    plugins: [{ id: "response-healing" }],
+    messages: [
+      { role: "system", content: buildPageRepairSystemPrompt() },
+      {
+        role: "user",
+        content: `The previous extraction missed questions.
+
+Input:
+${JSON.stringify({
+  page_number: args.pageNumber,
+  expected_question_count_estimate: args.expectedQuestionCount,
+  page_text: args.chunks.map((chunk) => chunk.text).join("\n"),
+  blocks,
+  already_extracted_questions: args.existingQuestions.map((mcq) => ({
+    stem: mcq.questionText ?? mcq.question ?? "",
+    source_block_ids: mcq.sourceChunkIds ?? [],
+    source_snippet: mcq.exactQuote ?? "",
+  })),
+})}
+
+Return JSON only.`,
+      },
+    ],
+  });
+
+  const { response, data: rawData } = await trackedOpenRouterFetch(
+    args.trackingCtx,
+    args.model,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000/pdf",
+        "X-Title": "TestNote PDF Extraction Repair",
+      },
+      body,
+    },
+  );
+
+  if (!response.ok) return { title: "Repair", summary: "", mcqs: [] };
+
+  try {
+    const data = rawData as OpenRouterResponse | null;
+    const rawContent = extractOpenRouterContent(data?.choices?.[0]?.message?.content);
+    const parsed = parseJsonFromModel(rawContent);
+    const coerced = coercePdfMcqResult(parsed);
+    if (!coerced) return { title: "Repair", summary: "", mcqs: [] };
+    return {
+      ...coerced,
+      mcqs: coerced.mcqs.map((mcq) => ({
+        ...mcq,
+        sourcePage: mcq.sourcePage ?? args.pageNumber,
+      })),
+    };
+  } catch {
+    return { title: "Repair", summary: "", mcqs: [] };
+  }
+}
+
+function buildPageRepairSystemPrompt() {
+  return `You are DrNote Extraction Repair Engine.
+
+The previous extraction missed questions.
+
+You will receive:
+1. The original page text/blocks.
+2. The questions already extracted from this page.
+3. The expected question count estimate.
+
+Your job:
+- Find questions that were missed.
+- Do not repeat already extracted questions.
+- Return only newly found questions.
+- Use exact source_block_ids and source_snippet.
+- Read the entire page_text before answering. Do not rely only on previously detected chunks.
+- If the page has more visible questions than already_extracted_questions, you must return the missing ones.
+- If the estimate was wrong, explain that in page_repair_notes.
+
+Return valid JSON only.
+
+Return:
+{"page_number":1,"new_questions_found":0,"new_questions":[{"question_id_temp":"q_missing_1","type":"extracted","page_number":1,"source_block_ids":["p1_b1"],"source_snippet":"Exact copied text from the input","question_number_original":null,"stem":"","options":{"A":"","B":"","C":"","D":""},"answer":{"label":null,"text":null,"found_in_source":false},"explanation":null,"duplicate_of":null,"confidence":0,"needs_review":false}],"page_repair_notes":"","final_estimated_question_count_for_page":0,"confidence":0}`;
+}
+
+function countExtractedForPage(
+  result: PdfMcqResult,
+  pageNumber: number,
+  sourceChunks: SourceChunk[],
+): number {
+  return result.mcqs.filter((mcq) => mcqBelongsToPage(mcq, pageNumber, sourceChunks)).length;
+}
+
+function mcqBelongsToPage(
+  mcq: PdfMcq,
+  pageNumber: number,
+  sourceChunks: SourceChunk[],
+): boolean {
+  if (mcq.sourcePage === pageNumber) return true;
+  const chunkPage = new Map(sourceChunks.map((chunk) => [chunk.id, chunk.pageNumber]));
+  return Boolean(mcq.sourceChunkIds?.some((id) => chunkPage.get(id) === pageNumber));
+}
+
 async function recordPageExtractionAudits(args: {
   jobId: string;
   fileHash: string;
   pageCount: number;
   sourceChunks: SourceChunk[];
   result: PdfMcqResult;
+  intelligence?: FileIntelligence;
   retryCount: number;
 }) {
   const chunksByPage = groupChunksByPage(args.sourceChunks);
   const mcqsByPage = groupMcqsByPage(args.result.mcqs, args.sourceChunks);
+  const auditByPage = new Map(
+    args.intelligence?.page_audit.map((page) => [page.page_number, page]) ?? [],
+  );
 
   for (let pageIndex = 0; pageIndex < args.pageCount; pageIndex += 1) {
     const pageNumber = pageIndex + 1;
     const chunks = chunksByPage.get(pageNumber) ?? [];
     const mcqs = mcqsByPage.get(pageNumber) ?? [];
-    const candidateQuestionCount = chunks.filter((chunk) =>
-      chunkLooksLikeQuestion(chunk.text),
-    ).length;
+    const intelligenceAudit = auditByPage.get(pageNumber);
+    const candidateQuestionCount =
+      intelligenceAudit?.estimated_question_count ??
+      chunks.filter((chunk) => chunkLooksLikeQuestion(chunk.text)).length;
     const needsReviewCount = mcqs.filter((mcq) => mcq.status === "needs_review").length;
     const incompleteCount = mcqs.filter((mcq) => {
       const optionCount = mcq.options?.length ?? mcq.choices?.length ?? 0;
@@ -816,7 +1670,7 @@ async function recordPageExtractionAudits(args: {
       jobId: args.jobId,
       fileHash: args.fileHash,
       pageIndex,
-      mode: candidateQuestionCount > 0 ? "existing_questions" : "noise",
+      mode: pageAuditMode(intelligenceAudit),
       candidateQuestionCount,
       extractedQuestionCount: mcqs.length,
       generatedQuestionCount: 0,
@@ -831,11 +1685,45 @@ async function recordPageExtractionAudits(args: {
       jobId: args.jobId,
       fileHash: args.fileHash,
       pageIndex,
-      mode: candidateQuestionCount > 0 ? "existing_questions" : "noise",
+      mode: pageAuditMode(intelligenceAudit),
       candidateQuestionCount,
       status: status === "partial" ? "needs_review" : "done",
     });
   }
+}
+
+function pageAuditMode(page?: FileIntelligence["page_audit"][number]) {
+  if (!page) return "noise" as const;
+  if (page.has_questions || page.estimated_question_count > 0) {
+    return page.page_role === "mixed" ? "mixed" : "existing_questions";
+  }
+  return page.page_role === "study_content" ? "study_content" : "noise";
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function asFiniteNumber(value: unknown, fallback: number): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function asTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function nullableTrimmedString(value: unknown): string | null {
+  const text = asTrimmedString(value);
+  return text ? text : null;
+}
+
+function asStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => asTrimmedString(entry))
+    .filter(Boolean)
+    .slice(0, 20);
 }
 
 function groupChunksByPage(chunks: SourceChunk[]): Map<number, SourceChunk[]> {
@@ -1242,6 +2130,84 @@ async function runChunkBatchedExtraction(args: {
             }
           : undefined),
   });
+}
+
+async function runPageLevelExtraction(args: {
+  apiKey: string;
+  model: string;
+  repairModel: string;
+  maxTokens: number;
+  extractionMode: ExtractionMode;
+  sourceChunks: SourceChunk[];
+  jobId: string;
+  trackingCtx: TrackedOpenRouterContext;
+  runCtx: ExtractionRunContext;
+}): Promise<PdfMcqResult | ExtractionErrorResponse> {
+  const pageEntries = [...groupChunksByPage(args.sourceChunks).entries()].sort(
+    ([a], [b]) => a - b,
+  );
+  if (!pageEntries.length) {
+    return runChunkBatchedExtraction(args);
+  }
+
+  const extractionAttempts: Array<{ mode: ExtractionMode; relaxed: boolean }> = [
+    { mode: args.extractionMode, relaxed: false },
+    {
+      mode:
+        args.extractionMode === "choices-provided" ||
+        args.extractionMode === "extract-only"
+          ? "make-choices"
+          : args.extractionMode,
+      relaxed: true,
+    },
+  ];
+  const failedBatchIndexes: number[] = [];
+
+  for (const attempt of extractionAttempts) {
+    const pageResults: PdfMcqResult[] = [];
+
+    for (const [pageNumber, pageChunks] of pageEntries) {
+      const result = await extractBatchWithSplitRetry({
+        apiKey: args.apiKey,
+        model: args.model,
+        repairModel: args.repairModel,
+        maxTokens: args.maxTokens,
+        mode: attempt.mode,
+        relaxed: attempt.relaxed,
+        chunks: pageChunks,
+        trackingCtx: args.trackingCtx,
+      });
+
+      if ("failureReason" in result) {
+        failedBatchIndexes.push(pageNumber);
+      } else {
+        pageResults.push(result);
+      }
+
+      await updateExtractionJob(args.jobId, {
+        status: "processing",
+        progressPagesProcessed: Math.min(pageEntries.length, pageResults.length),
+      });
+    }
+
+    if (pageResults.length) {
+      let merged = repairMissingSourceChunkIds(
+        mergeBatchResults(pageResults),
+        args.sourceChunks,
+      );
+      merged = await recoverMissingChunkQuestions({
+        ...args,
+        mode: attempt.mode,
+        chunks: args.sourceChunks,
+        current: merged,
+      });
+      args.runCtx.failedBatchIndexes = failedBatchIndexes;
+      return merged;
+    }
+  }
+
+  args.runCtx.failedBatchIndexes = failedBatchIndexes;
+  return runChunkBatchedExtraction(args);
 }
 
 async function extractBatchWithSplitRetry(args: {
@@ -1885,16 +2851,21 @@ function buildChunkExtractionPrompt(
   return `Analyze the following parsed PDF pages.
 
 Task:
-1. Count distinct questions.
-2. Extract distinct questions if present.
-3. Attach exact source references.
+1. FIRST scan ALL pages and find the highest question number visible (e.g. "12." means at least 12 questions).
+2. Extract EVERY distinct question — do not stop until you have extracted all of them.
+3. Attach exact source references to each question.
 4. Mark whether the document already contains questions or whether DrNote should generate new questions from the material.
 
 Rules:
 - ${modeHint}
+- Before writing a single question, count ALL questions visible in page_text across every page. Use the highest numbered marker as your target count.
 - Every extracted question must include page_number, source_block_ids, and source_snippet.
 - Use only source_block_ids that exist in the input.
 - source_snippet must be an exact short copied substring from the input.
+- Read ALL page_text first to count every visible question, then use blocks only to attach source IDs.
+- Do NOT stop after the first few questions. Keep going until every real question visible in page_text is in the output.
+- If page_text has numbered questions 1-12, the output MUST include all 12 distinct questions unless some are clearly duplicates.
+- If a question stem is on one page and its options on another, combine them into one question entry.
 - Never invent a source.
 - Never invent an answer unless the input clearly contains it. If no answer is present, use {"label":"","text":"","found_in_source":false}.
 - If choices are missing, keep options empty. Do not fabricate options in this extraction pass.
@@ -1955,6 +2926,7 @@ function blocksToPageInput(
     .sort(([a], [b]) => a - b)
     .map(([page_number, pageBlocks]) => ({
       page_number,
+      page_text: pageBlocks.map((block) => block.text).join("\n"),
       blocks: pageBlocks,
     }));
 }
@@ -2112,10 +3084,11 @@ function buildExtractionPrompt(mode: ExtractionMode, relaxed = false): string {
     'Return compact JSON with this shape: {"title":"string","summary":"max 20 words","mcqs":[{"questionNumber":11,"questionText":"string","options":[{"label":"A","text":"string"}],"correctAnswer":"C","notes":["max one short source note"],"sourcePage":1,"sourceRegion":{"x":0.1,"y":0.2,"width":0.8,"height":0.15}}]}.';
 
   const formatHints =
-    "Recognize multiple-choice questions in common formats: numbered stems, recall blocks, and options labeled A-D, A-C, or A-B.";
+    "Recognize multiple-choice questions in all formats: numbered stems, bullet-point scenarios (•), dash-prefixed lines (- or –), plain patient-scenario paragraphs, and options labeled A-D, A-C, A-B, a-d, or unlabeled lines. In student recall documents every bullet point is a question — do not skip bullets without numbered prefixes.";
 
   const shared =
-    "Set title to a short, human-readable document name based on the content, not the uploaded filename. For each question, include sourcePage and sourceRegion when using full-file mode. Format questionText and option text in normal sentence case and fix obvious spelling typos while preserving medical meaning.";
+    "Set title to a short, human-readable document name based on the content, not the uploaded filename. For each question, include sourcePage and sourceRegion when using full-file mode. Format questionText and option text in normal sentence case and fix obvious spelling typos while preserving medical meaning. " +
+    "RECALL DOCUMENT RULES: (1) A short phrase immediately after a question in colored/underlined text is the ANSWER — put it in correctAnswer, not in questionText. (2) Remove author uncertainty notes like '(I don't remember the choices...)', '(not sure about...)', '(I think...)' from questionText — move them to notes. (3) Remove inline answer hints like '(answer: X)' from the stem — put X in correctAnswer. (4) Section headers (Non-Communicable Diseases, Communicable Diseases, Clinical Preventive Services, Maternal and Child Health, Environmental and Occupational, Epidemiology Biostatistics Demography, Management Quality Informatics) are NOT questions — skip them. (5) Explanation paragraphs and CDC/WHO/USPSTF citation blocks after an answer are NOT questions — use them as the explanation field. (6) If choices have no A/B/C/D labels, assign labels A, B, C, D in top-to-bottom order. (7) Preserve Arabic text in stems and choices — do not drop or truncate bilingual questions.";
 
   if (relaxed) {
     return `Extract every multiple-choice question you can find. ${formatHints} ${shared} ${jsonShape}`;

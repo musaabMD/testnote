@@ -1,5 +1,6 @@
 import { isAdminUser } from "@/lib/admin-access.server";
 import { isQuotaEnforcementEnabled, getUsageLedgerSecret } from "@/lib/convex-usage-client.server";
+import { captureServerConversionEvent } from "@/lib/server-conversion-analytics.server";
 
 export type ConvexPlan = "free" | "starter" | "pro" | "school";
 type BillingStatus = "active" | "trialing" | "past_due" | "canceled" | "none";
@@ -46,6 +47,7 @@ export async function syncClerkBillingPlanToConvex(args: {
       email: args.email,
       plan: "pro",
       billingStatus: "active",
+      source: "request_sync",
     });
     return;
   }
@@ -58,6 +60,7 @@ export async function syncClerkBillingPlanToConvex(args: {
     email: args.email,
     plan,
     billingStatus,
+    source: "request_sync",
   });
 }
 
@@ -73,11 +76,12 @@ export async function syncClerkBillingFromWebhook(args: {
       clerkUserId: args.clerkUserId,
       plan: "pro",
       billingStatus: "active",
+      source: "clerk_webhook",
     });
     return;
   }
 
-  await pushPlanToConvex(args);
+  await pushPlanToConvex({ ...args, source: "clerk_webhook" });
 }
 
 async function pushPlanToConvex(args: {
@@ -85,6 +89,7 @@ async function pushPlanToConvex(args: {
   email?: string | null;
   plan: ConvexPlan;
   billingStatus: BillingStatus;
+  source: "request_sync" | "clerk_webhook";
 }) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   const secret = getUsageLedgerSecret();
@@ -102,6 +107,34 @@ async function pushPlanToConvex(args: {
       plan: args.plan,
       billingStatus: args.billingStatus,
     });
+
+    if (args.source === "clerk_webhook") {
+      if (
+        args.plan !== "free" &&
+        (args.billingStatus === "active" || args.billingStatus === "trialing")
+      ) {
+        await captureServerConversionEvent({
+          eventName: "billing_synced_active",
+          distinctId: args.clerkUserId,
+          properties: {
+            plan: args.plan,
+            billing_status: args.billingStatus,
+            source: args.source,
+          },
+        });
+      }
+
+      if (args.billingStatus === "canceled") {
+        await captureServerConversionEvent({
+          eventName: "subscription_canceled",
+          distinctId: args.clerkUserId,
+          properties: {
+            plan: args.plan,
+            source: args.source,
+          },
+        });
+      }
+    }
   } catch (error) {
     if (process.env.NODE_ENV === "development") {
       console.warn("[clerk-billing] Convex plan sync failed:", error);

@@ -27,12 +27,18 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { processPdfUploads } from "@/lib/process-pdf-upload";
 import {
   filterSupportedUploadFiles,
   getUnsupportedUploadReason,
   UPLOAD_ACCEPT_ATTRIBUTE,
 } from "@/lib/upload-file-types";
+import {
+  StudyOnboardingModal,
+  type PendingOnboardingFile,
+  type StudyOnboardingResult,
+} from "@/components/study-onboarding-modal";
 import { getUserDisplayName } from "@/lib/user-display-name";
 
 type Screen = "drop" | "loading" | "done";
@@ -44,6 +50,10 @@ type QueuedFile = {
   type: string;
   file: File;
 };
+
+type PendingOnboardingIntent =
+  | { kind: "files"; files: File[] }
+  | { kind: "picker" };
 
 type Phase = {
   icon: typeof FileSearch;
@@ -62,8 +72,8 @@ const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 const PHASES: Phase[] = [
   {
     icon: FileSearch,
-    title: "Reading your file",
-    sub: "Scanning the content",
+    title: "Checking file",
+    sub: "Creating the upload receipt",
     pct: 15,
     dur: 1600,
     color: "#185FA5",
@@ -72,8 +82,8 @@ const PHASES: Phase[] = [
   },
   {
     icon: Scan,
-    title: "Detecting structure",
-    sub: "Finding pages and sections",
+    title: "Counting pages",
+    sub: "Preparing background extraction",
     pct: 30,
     dur: 1800,
     color: "#854F0B",
@@ -82,8 +92,8 @@ const PHASES: Phase[] = [
   },
   {
     icon: Brain,
-    title: "Understanding the content",
-    sub: "AI is reading carefully",
+    title: "Looking for questions",
+    sub: "Reading source text and layout",
     pct: 50,
     dur: 2200,
     color: "#534AB7",
@@ -92,8 +102,8 @@ const PHASES: Phase[] = [
   },
   {
     icon: Sparkles,
-    title: "Finding the questions",
-    sub: "Spotting every single one",
+    title: "Extracting questions",
+    sub: "Keeping results tied to source pages",
     pct: 68,
     dur: 1800,
     color: "#993556",
@@ -102,8 +112,8 @@ const PHASES: Phase[] = [
   },
   {
     icon: ListChecks,
-    title: "Organizing everything",
-    sub: "Sorting and cleaning up",
+    title: "Saving progress",
+    sub: "You can continue from the dashboard",
     pct: 86,
     dur: 1400,
     color: "#0F6E56",
@@ -112,8 +122,8 @@ const PHASES: Phase[] = [
   },
   {
     icon: CircleCheck,
-    title: "Almost there",
-    sub: "Putting it all together",
+    title: "Opening dashboard",
+    sub: "Background work will keep running",
     pct: 97,
     dur: 900,
     color: "#3B6D11",
@@ -206,9 +216,15 @@ export function PdfDropzone() {
   const [textOpen, setTextOpen] = useState(false);
   const [manualText, setManualText] = useState("");
   const [extractedCount, setExtractedCount] = useState(0);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [pendingOnboardingFiles, setPendingOnboardingFiles] = useState<
+    PendingOnboardingFile[]
+  >([]);
   const processingRef = useRef(false);
   const lastBatchRef = useRef("");
   const pendingAuthFilesRef = useRef<File[]>([]);
+  const pendingOnboardingIntentRef = useRef<PendingOnboardingIntent | null>(null);
+  const uploadContextRef = useRef<StudyOnboardingResult | null>(null);
 
   const requestSignUpForUpload = useCallback((pendingFiles?: File[]) => {
     if (!clerkEnabled || isSignedIn) return false;
@@ -223,6 +239,15 @@ export function PdfDropzone() {
     }
 
     setError("");
+    captureConversionEvent("signup_cta_clicked", {
+      surface: "upload_gate",
+      signed_in: false,
+      has_pending_files: Boolean(pendingFiles?.length),
+    });
+    captureConversionEvent("signup_started", {
+      surface: "upload_gate",
+      has_pending_files: Boolean(pendingFiles?.length),
+    });
     openSignUp({
       fallbackRedirectUrl: DASHBOARD_REDIRECT,
       signInFallbackRedirectUrl: DASHBOARD_REDIRECT,
@@ -234,6 +259,13 @@ export function PdfDropzone() {
     if (!incoming) return;
     const incomingFiles = Array.from(incoming);
     if (!incomingFiles.length) return;
+
+    captureConversionEvent("homepage_upload_clicked", {
+      signed_in: Boolean(isSignedIn),
+      file_type: incomingFiles[0]?.type || "unknown",
+      file_count: incomingFiles.length,
+      source_path: "dropzone",
+    });
 
     if (requestSignUpForUpload(incomingFiles)) return;
 
@@ -262,7 +294,39 @@ export function PdfDropzone() {
       const unique = next.filter((item) => !seen.has(`${item.name}-${item.size}`));
       return [...prev, ...unique];
     });
-  }, [requestSignUpForUpload]);
+  }, [isSignedIn, requestSignUpForUpload]);
+
+  const beginOnboarding = useCallback((intent: PendingOnboardingIntent) => {
+    pendingOnboardingIntentRef.current = intent;
+    setPendingOnboardingFiles(
+      intent.kind === "files"
+        ? intent.files.map((file) => ({ name: file.name, size: file.size }))
+        : [],
+    );
+    setOnboardingOpen(true);
+  }, []);
+
+  const handleOnboardingComplete = useCallback((result: StudyOnboardingResult) => {
+    uploadContextRef.current = result;
+    const intent = pendingOnboardingIntentRef.current;
+    pendingOnboardingIntentRef.current = null;
+    setPendingOnboardingFiles([]);
+
+    if (!intent) return;
+
+    if (intent.kind === "picker") {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    addFiles(intent.files);
+  }, [addFiles]);
+
+  const handleOnboardingClose = useCallback(() => {
+    pendingOnboardingIntentRef.current = null;
+    setPendingOnboardingFiles([]);
+    setOnboardingOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!isSignedIn || !pendingAuthFilesRef.current.length) return;
@@ -298,7 +362,9 @@ export function PdfDropzone() {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragOver(false);
-    addFiles(event.dataTransfer.files);
+    const droppedFiles = Array.from(event.dataTransfer.files);
+    if (!droppedFiles.length) return;
+    beginOnboarding({ kind: "files", files: droppedFiles });
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -316,11 +382,10 @@ export function PdfDropzone() {
     const file = new File([blob], pastedTextFileName(text), {
       type: "text/plain",
     });
-    if (requestSignUpForUpload()) return;
-    addFiles([file]);
+    beginOnboarding({ kind: "files", files: [file] });
     setManualText("");
     setTextOpen(false);
-  }, [addFiles, manualText, requestSignUpForUpload]);
+  }, [beginOnboarding, manualText]);
 
   const handlePaste = useCallback(
     (event: ClipboardEvent) => {
@@ -342,7 +407,7 @@ export function PdfDropzone() {
       if (supportedFiles.length > 0) {
         event.preventDefault();
         event.stopPropagation();
-        addFiles(supportedFiles);
+        beginOnboarding({ kind: "files", files: supportedFiles });
         return;
       }
 
@@ -355,9 +420,9 @@ export function PdfDropzone() {
       const file = new File([blob], pastedTextFileName(text), {
         type: "text/plain",
       });
-      addFiles([file]);
+      beginOnboarding({ kind: "files", files: [file] });
     },
-    [addFiles, screen],
+    [beginOnboarding, screen],
   );
 
   useEffect(() => {
@@ -379,6 +444,8 @@ export function PdfDropzone() {
         {
           append: true,
           addedBy: getUserDisplayName(user),
+          examSlug: uploadContextRef.current?.examSlug,
+          examName: uploadContextRef.current?.examName,
           onJobStarted: sendToDashboard,
         },
       );
@@ -467,6 +534,13 @@ export function PdfDropzone() {
 
   return (
     <div className="w-full font-[family-name:var(--font-dm-sans)]">
+      <StudyOnboardingModal
+        open={onboardingOpen}
+        onClose={handleOnboardingClose}
+        onComplete={handleOnboardingComplete}
+        pendingFiles={pendingOnboardingFiles}
+      />
+
       <div
         className={`relative mx-auto w-full max-w-[720px] overflow-hidden rounded-[28px] border-2 border-dashed border-[#d1d1d1] bg-[#fafafa] shadow-sm transition-all duration-300 outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80 ${
           dragOver
@@ -566,8 +640,12 @@ export function PdfDropzone() {
               <button
                 className="inline-flex items-center gap-2 rounded-full border border-[#d1d1d1] bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#bdbdbd] hover:bg-[#f5f5f5]"
                 onClick={() => {
-                  if (requestSignUpForUpload()) return;
-                  fileInputRef.current?.click();
+                  captureConversionEvent("homepage_upload_clicked", {
+                    signed_in: Boolean(isSignedIn),
+                    file_type: "unknown",
+                    source_path: "picker",
+                  });
+                  beginOnboarding({ kind: "picker" });
                 }}
                 type="button"
               >
@@ -577,7 +655,11 @@ export function PdfDropzone() {
               <button
                 className="inline-flex items-center gap-2 rounded-full border border-[#d1d1d1] bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-[#bdbdbd] hover:bg-[#f5f5f5]"
                 onClick={() => {
-                  if (requestSignUpForUpload()) return;
+                  captureConversionEvent("homepage_upload_clicked", {
+                    signed_in: Boolean(isSignedIn),
+                    file_type: "text/plain",
+                    source_path: "manual_text",
+                  });
                   setTextOpen((value) => !value);
                 }}
                 type="button"
@@ -726,6 +808,32 @@ export function PdfDropzone() {
                   background: phase.color,
                 }}
               />
+            </div>
+
+            <div className="mt-5 w-full max-w-[360px] rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-left shadow-sm">
+              <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                Upload receipt
+              </p>
+              <div className="mt-2 space-y-2">
+                {files.slice(0, 3).map((file) => (
+                  <div className="flex items-center gap-2.5" key={file.id}>
+                    <FileText className="size-4 shrink-0 text-slate-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {formatBytes(file.size)} · safe to leave after dashboard opens
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {files.length > 3 ? (
+                  <p className="text-xs text-slate-500">
+                    +{files.length - 3} more file{files.length - 3 === 1 ? "" : "s"}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
         ) : null}

@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
 import { Geist, Geist_Mono, Sora, DM_Sans } from "next/font/google";
 import { AppProviders } from "@/components/providers";
+import { WebVitalsReporter } from "@/components/web-vitals-reporter";
 import { APP_NAME } from "@/lib/site-branding";
 import "./globals.css";
 
@@ -64,6 +65,8 @@ export const viewport: Viewport = {
 };
 
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+const webVitalsEnabled =
+  process.env.NEXT_PUBLIC_ENABLE_WEB_VITALS_REPORTING === "true";
 
 export default function RootLayout({
   children,
@@ -83,6 +86,7 @@ export default function RootLayout({
         ) : (
           <AppProviders>{children}</AppProviders>
         )}
+        {webVitalsEnabled ? <WebVitalsReporter /> : null}
         <Analytics />
       </body>
     </html>

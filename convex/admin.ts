@@ -14,6 +14,9 @@ const rangedListArgs = {
   limit: v.optional(v.number()),
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKLY_NEW_USER_GOAL = 50;
+
 type AppUser = {
   id: string;
   clerkUserId?: string;
@@ -58,6 +61,110 @@ type FileRow = {
   status: string;
   startedAt: number;
 };
+
+type WindowStat = {
+  count: number;
+  previousCount: number;
+  pctChange: number;
+};
+
+type CostWindowStat = {
+  costUsd: number;
+  previousCostUsd: number;
+  pctChange: number;
+};
+
+export const getNorthStarMetrics = query({
+  args: {
+    to: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+
+    const monthStart = args.to - 30 * DAY_MS;
+    const users = await getUsers(ctx);
+    const costs = await getCostEvents(ctx, monthStart - 30 * DAY_MS, args.to);
+    const files = await getFileRows(ctx, monthStart - 30 * DAY_MS, args.to, users, costs);
+
+    const monthFiles = files.filter((file) => inWindow(file.startedAt, args.to, 30));
+    const monthActiveUsers = users.filter((user) =>
+      inWindow(user.lastActiveAt, args.to, 30),
+    );
+    const uploadersThisMonth = new Set(monthFiles.map((file) => file.userId));
+    const filesByUploader = groupBy(monthFiles, (file) => file.userId);
+    const repeatUploadersThisMonth = Array.from(filesByUploader.values()).filter(
+      (rows) => rows.length >= 2,
+    ).length;
+    const topExams = getCoverageRows(monthFiles);
+    const coveredExams = topExams.filter((exam) => exam.examGoal !== "unknown");
+    const openRouterCosts = costs.filter((cost) => isOpenRouterCost(cost));
+    const mistralOcrCosts = costs.filter((cost) => isMistralOcrCost(cost));
+
+    return {
+      generatedAt: args.to,
+      targetNewUsersPerWeek: WEEKLY_NEW_USER_GOAL,
+      growth: {
+        totalUsers: users.length,
+        registered: {
+          day: countWindow(users, (user) => user.createdAt, args.to, 1),
+          week: countWindow(users, (user) => user.createdAt, args.to, 7),
+          month: countWindow(users, (user) => user.createdAt, args.to, 30),
+        },
+        active: {
+          day: countWindow(users, (user) => user.lastActiveAt, args.to, 1),
+          week: countWindow(users, (user) => user.lastActiveAt, args.to, 7),
+          month: countWindow(users, (user) => user.lastActiveAt, args.to, 30),
+        },
+        monthlyActiveRatePct: percent(monthActiveUsers.length, users.length),
+        weeklyGoalPct: percent(
+          countInCurrentWindow(users, (user) => user.createdAt, args.to, 7),
+          WEEKLY_NEW_USER_GOAL,
+        ),
+        weeklyGoalRemaining: Math.max(
+          0,
+          WEEKLY_NEW_USER_GOAL -
+            countInCurrentWindow(users, (user) => user.createdAt, args.to, 7),
+        ),
+      },
+      uploads: {
+        totalFiles: files.filter((file) => file.startedAt <= args.to).length,
+        uploaded: {
+          day: countWindow(files, (file) => file.startedAt, args.to, 1),
+          week: countWindow(files, (file) => file.startedAt, args.to, 7),
+          month: countWindow(files, (file) => file.startedAt, args.to, 30),
+        },
+        uniqueUploaders: {
+          day: uniqueWindow(files, (file) => file.startedAt, (file) => file.userId, args.to, 1),
+          week: uniqueWindow(files, (file) => file.startedAt, (file) => file.userId, args.to, 7),
+          month: uniqueWindow(
+            files,
+            (file) => file.startedAt,
+            (file) => file.userId,
+            args.to,
+            30,
+          ),
+        },
+        uploadersThisMonth: uploadersThisMonth.size,
+        repeatUploadersThisMonth,
+        repeatUploaderRatePct: percent(repeatUploadersThisMonth, uploadersThisMonth.size),
+      },
+      costs: {
+        openRouter: costWindows(openRouterCosts, args.to),
+        mistralOcr: costWindows(mistralOcrCosts, args.to),
+        totalAi: costWindows(costs.filter((cost) => cost.provider !== "unknown"), args.to),
+      },
+      coverage: {
+        examsCoveredThisMonth: coveredExams.length,
+        deepExamsThisMonth: coveredExams.filter(
+          (exam) => exam.users >= 2 && exam.files >= 3,
+        ).length,
+        filesPerCoveredExam: divide(monthFiles.length, coveredExams.length),
+        questionsThisMonth: sum(monthFiles, (file) => file.questionCount),
+        topExams,
+      },
+    };
+  },
+});
 
 export const getOverview = query({
   args: rangeArgs,
@@ -622,10 +729,129 @@ function sum<T>(rows: T[], getValue: (row: T) => number | undefined): number {
   return rows.reduce((total, row) => total + (getValue(row) ?? 0), 0);
 }
 
+function inWindow(timestamp: number, to: number, days: number): boolean {
+  return timestamp > to - days * DAY_MS && timestamp <= to;
+}
+
+function inPreviousWindow(timestamp: number, to: number, days: number): boolean {
+  const windowMs = days * DAY_MS;
+  return timestamp > to - 2 * windowMs && timestamp <= to - windowMs;
+}
+
+function countInCurrentWindow<T>(
+  rows: T[],
+  getTimestamp: (row: T) => number,
+  to: number,
+  days: number,
+): number {
+  return rows.filter((row) => inWindow(getTimestamp(row), to, days)).length;
+}
+
+function countWindow<T>(
+  rows: T[],
+  getTimestamp: (row: T) => number,
+  to: number,
+  days: number,
+): WindowStat {
+  const count = countInCurrentWindow(rows, getTimestamp, to, days);
+  const previousCount = rows.filter((row) =>
+    inPreviousWindow(getTimestamp(row), to, days),
+  ).length;
+  return {
+    count,
+    previousCount,
+    pctChange: percentChange(count, previousCount),
+  };
+}
+
+function uniqueWindow<T>(
+  rows: T[],
+  getTimestamp: (row: T) => number,
+  getKey: (row: T) => string,
+  to: number,
+  days: number,
+): WindowStat {
+  const current = new Set(
+    rows
+      .filter((row) => inWindow(getTimestamp(row), to, days))
+      .map((row) => getKey(row)),
+  );
+  const previous = new Set(
+    rows
+      .filter((row) => inPreviousWindow(getTimestamp(row), to, days))
+      .map((row) => getKey(row)),
+  );
+  return {
+    count: current.size,
+    previousCount: previous.size,
+    pctChange: percentChange(current.size, previous.size),
+  };
+}
+
+function costWindows(costs: CostEvent[], to: number) {
+  return {
+    day: costWindow(costs, to, 1),
+    week: costWindow(costs, to, 7),
+    month: costWindow(costs, to, 30),
+  };
+}
+
+function costWindow(costs: CostEvent[], to: number, days: number): CostWindowStat {
+  const costUsd = sum(
+    costs.filter((cost) => inWindow(cost.createdAt, to, days)),
+    (cost) => cost.costUsd,
+  );
+  const previousCostUsd = sum(
+    costs.filter((cost) => inPreviousWindow(cost.createdAt, to, days)),
+    (cost) => cost.costUsd,
+  );
+  return {
+    costUsd,
+    previousCostUsd,
+    pctChange: percentChange(costUsd, previousCostUsd),
+  };
+}
+
+function getCoverageRows(files: FileRow[]) {
+  const grouped = groupBy(files, (file) => normalizeMetricLabel(file.examGoal));
+  return Array.from(grouped.entries())
+    .map(([examGoal, rows]) => {
+      const users = new Set(rows.map((row) => row.userId));
+      return {
+        examGoal,
+        users: users.size,
+        files: rows.length,
+        questions: sum(rows, (row) => row.questionCount),
+        costUsd: sum(rows, (row) => row.totalCostUsd),
+      };
+    })
+    .sort((a, b) => b.files - a.files || b.users - a.users);
+}
+
+function normalizeMetricLabel(value: string | undefined): string {
+  const normalized = value?.trim();
+  return normalized ? normalized : "unknown";
+}
+
+function isOpenRouterCost(cost: CostEvent): boolean {
+  return cost.provider.toLowerCase().includes("openrouter");
+}
+
+function isMistralOcrCost(cost: CostEvent): boolean {
+  const provider = cost.provider.toLowerCase();
+  const model = cost.model.toLowerCase();
+  return provider.includes("mistral") || model.includes("mistral");
+}
+
 function divide(numerator: number, denominator: number): number {
   return denominator > 0 ? numerator / denominator : 0;
 }
 
 function percent(numerator: number, denominator: number): number {
   return denominator > 0 ? (numerator / denominator) * 100 : 0;
+}
+
+function percentChange(current: number, previous: number): number {
+  if (previous > 0) return ((current - previous) / previous) * 100;
+  return current > 0 ? 100 : 0;
 }

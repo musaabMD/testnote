@@ -1,5 +1,7 @@
 export type StudyProfile = {
   examGoal: string;
+  examSlug?: string;
+  examName?: string;
   examDate: string;
   hoursPerWeek: string;
   level: "beginner" | "intermediate" | "advanced" | "";
@@ -12,6 +14,8 @@ export const STUDY_PROFILE_KEY = "drnote-study-profile";
 
 export const DEFAULT_STUDY_PROFILE: StudyProfile = {
   examGoal: "",
+  examSlug: "",
+  examName: "",
   examDate: "",
   hoursPerWeek: "",
   level: "",

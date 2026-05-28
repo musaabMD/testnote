@@ -34,7 +34,7 @@ export function AddPage({ onDone }: AddPageProps) {
   const canContinue =
     upload &&
     upload.totalItems > 0 &&
-    upload.allFilesReady &&
+    (upload.allFilesReady || upload.safeToLeave) &&
     !upload.hasErrors;
 
   function finish() {
@@ -90,6 +90,8 @@ export function AddPage({ onDone }: AddPageProps) {
         >
           {upload?.totalItems && upload.allFilesReady
             ? `Continue with ${upload.totalItems} source${upload.totalItems > 1 ? "s" : ""}`
+            : upload?.safeToLeave
+              ? "Continue while DrNote works"
             : upload?.isProcessing
               ? "Extracting questions…"
               : "Upload a file to continue"}

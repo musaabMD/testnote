@@ -7,9 +7,11 @@ const isProtectedRoute = createRouteMatcher([
   "/pdf(.*)",
 ]);
 const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+const isCronWorkerRoute = createRouteMatcher(["/api/pdf/mcqs/worker"]);
 
 const clerkProxy = clerkEnabled
   ? clerkMiddleware(async (auth, req) => {
+      if (isCronWorkerRoute(req)) return;
       if (isProtectedRoute(req)) {
         await auth.protect();
       }
@@ -24,7 +26,6 @@ export default clerkProxy ?? localProxy;
 
 export const config = {
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ico|ttf|woff2?|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    "/(api|trpc)(.*)",
+    "/((?!api/pdf/mcqs/worker|_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ico|ttf|woff2?|csv|docx?|xlsx?|zip|webmanifest)).*)",
   ],
 };

@@ -7,8 +7,9 @@ export type ConvexExtractionRecord = {
   pageCount?: number;
   title: string;
   summary: string;
-  mcqs: PdfMcq[];
-  sourceChunks: SourceChunk[];
+  mcqs?: PdfMcq[];
+  sourceChunks?: SourceChunk[];
+  payloadUrl?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -31,7 +32,7 @@ export function convexRecordToQueueItem(
   const result: PdfMcqResult = {
     title: record.title,
     summary: record.summary,
-    mcqs: record.mcqs,
+    mcqs: record.mcqs ?? [],
   };
 
   return {
@@ -50,7 +51,7 @@ export function convexRecordToQueueItem(
     examSlug: overlay?.examSlug,
     examName: overlay?.examName,
     resourceKind: overlay?.resourceKind,
-    sourceChunks: record.sourceChunks,
+    sourceChunks: record.sourceChunks ?? [],
   };
 }
 
@@ -84,6 +85,11 @@ export function mergeConvexRecordsWithLocal(
 
   for (const record of records) {
     seen.add(record.fileHash);
+    const local = localFiles.find((file) => file.id === record.fileHash);
+    if (!Array.isArray(record.mcqs) && local) {
+      merged.push(local);
+      continue;
+    }
     merged.push(convexRecordToQueueItem(record, overlayMap.get(record.fileHash)));
   }
 

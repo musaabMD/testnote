@@ -35,7 +35,6 @@ export default function Image() {
             fontWeight: 800,
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             alt={`${APP_NAME} logo`}
             height={88}

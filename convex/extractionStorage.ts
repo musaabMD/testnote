@@ -1,12 +1,43 @@
 import { v } from "convex/values";
 import type { MutationCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { action, internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { r2 } from "./r2";
 
 function assertStorageSecret(secret: string) {
   const expected = process.env.EXTRACTION_STORAGE_SECRET;
   if (!expected || secret !== expected) {
     throw new Error("Unauthorized extraction storage request.");
   }
+}
+
+const EXTRACTION_PAYLOAD_MIME_TYPE = "application/json";
+
+function safePathSegment(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || "unknown";
+}
+
+function extractionPayloadR2Key(args: {
+  kind: "file-cache" | "pdf-extraction";
+  fileHash: string;
+  clerkUserId?: string;
+  cacheKey?: string;
+}) {
+  const prefix = (process.env.R2_OBJECT_PREFIX ?? "")
+    .split("/")
+    .map((segment) => safePathSegment(segment.trim()))
+    .filter(Boolean);
+  const owner = args.clerkUserId ? safePathSegment(args.clerkUserId) : "shared";
+  const key = args.cacheKey ? safePathSegment(args.cacheKey) : safePathSegment(args.fileHash);
+
+  return [
+    ...prefix,
+    "extraction-payloads",
+    args.kind,
+    owner,
+    safePathSegment(args.fileHash),
+    `${key}-${crypto.randomUUID()}.json`,
+  ].join("/");
 }
 
 const extractionJobStatus = v.union(
@@ -77,6 +108,11 @@ export const getFileCache = query({
       summary: row.summary,
       mcqs: row.mcqs,
       sourceChunks: row.sourceChunks,
+      payloadUrl: row.payloadR2Key
+        ? await r2.getUrl(row.payloadR2Key, { expiresIn: 60 * 10 })
+        : undefined,
+      payloadStorage: row.payloadStorage,
+      payloadSizeBytes: row.payloadSizeBytes,
       createdAt: row.createdAt,
     };
   },
@@ -128,10 +164,134 @@ export const upsertFileCache = mutation({
       summary: args.summary,
       mcqs: args.mcqs,
       sourceChunks: args.sourceChunks,
+      payloadStorage: "convex" as const,
+      payloadR2Key: undefined,
+      payloadSizeBytes: undefined,
       createdAt: Date.now(),
     };
 
     if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("fileCache", payload);
+  },
+});
+
+export const upsertFileCachePayload = action({
+  args: {
+    secret: v.string(),
+    fileHash: v.string(),
+    extractionMode: v.string(),
+    extractionModel: v.string(),
+    appExtractionVersion: v.string(),
+    promptVersion: v.string(),
+    schemaVersion: v.string(),
+    renderVersion: v.string(),
+    pageCount: v.number(),
+    title: v.string(),
+    summary: v.string(),
+    payloadBytes: v.bytes(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const cacheKey = [
+      args.fileHash,
+      args.extractionMode,
+      args.extractionModel,
+      args.appExtractionVersion,
+      args.promptVersion,
+      args.schemaVersion,
+      args.renderVersion,
+    ].join(":");
+    const r2Key = await r2.store(
+      ctx,
+      new Blob([args.payloadBytes], { type: EXTRACTION_PAYLOAD_MIME_TYPE }),
+      {
+        key: extractionPayloadR2Key({
+          kind: "file-cache",
+          fileHash: args.fileHash,
+          cacheKey,
+        }),
+        type: EXTRACTION_PAYLOAD_MIME_TYPE,
+        cacheControl: "private, max-age=3600",
+      },
+    );
+
+    await ctx.runMutation(internal.extractionStorage.upsertFileCacheR2Metadata, {
+      fileHash: args.fileHash,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      appExtractionVersion: args.appExtractionVersion,
+      promptVersion: args.promptVersion,
+      schemaVersion: args.schemaVersion,
+      renderVersion: args.renderVersion,
+      pageCount: args.pageCount,
+      title: args.title,
+      summary: args.summary,
+      payloadR2Key: r2Key,
+      payloadSizeBytes: args.payloadBytes.byteLength,
+    });
+
+    return r2Key;
+  },
+});
+
+export const upsertFileCacheR2Metadata = internalMutation({
+  args: {
+    fileHash: v.string(),
+    extractionMode: v.string(),
+    extractionModel: v.string(),
+    appExtractionVersion: v.string(),
+    promptVersion: v.string(),
+    schemaVersion: v.string(),
+    renderVersion: v.string(),
+    pageCount: v.number(),
+    title: v.string(),
+    summary: v.string(),
+    payloadR2Key: v.string(),
+    payloadSizeBytes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("fileCache")
+      .withIndex("by_cache_key", (q) =>
+        q
+          .eq("fileHash", args.fileHash)
+          .eq("extractionMode", args.extractionMode)
+          .eq("extractionModel", args.extractionModel)
+          .eq("appExtractionVersion", args.appExtractionVersion)
+          .eq("promptVersion", args.promptVersion)
+          .eq("schemaVersion", args.schemaVersion)
+          .eq("renderVersion", args.renderVersion),
+      )
+      .first();
+
+    const payload = {
+      fileHash: args.fileHash,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      appExtractionVersion: args.appExtractionVersion,
+      promptVersion: args.promptVersion,
+      schemaVersion: args.schemaVersion,
+      renderVersion: args.renderVersion,
+      pageCount: args.pageCount,
+      title: args.title,
+      summary: args.summary,
+      mcqs: undefined,
+      sourceChunks: undefined,
+      payloadStorage: "r2" as const,
+      payloadR2Key: args.payloadR2Key,
+      payloadSizeBytes: args.payloadSizeBytes,
+      createdAt: Date.now(),
+    };
+
+    if (existing) {
+      if (existing.payloadR2Key && existing.payloadR2Key !== args.payloadR2Key) {
+        await r2.deleteObject(ctx, existing.payloadR2Key);
+      }
       await ctx.db.patch(existing._id, payload);
       return existing._id;
     }
@@ -223,6 +383,99 @@ export const getExtractionJobById = query({
       .query("extractionJobs")
       .withIndex("by_job_id", (q) => q.eq("jobId", args.jobId))
       .first();
+  },
+});
+
+export const claimNextWorkerExtractionJob = mutation({
+  args: {
+    secret: v.string(),
+    staleAfterMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const now = Date.now();
+    const cutoff = now - args.staleAfterMs;
+    const queued = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) => q.eq("status", "queued"))
+      .order("asc")
+      .first();
+
+    const staleProcessing = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) => q.eq("status", "processing"))
+      .filter((q) => q.lt(q.field("updatedAt"), cutoff))
+      .order("asc")
+      .first();
+
+    const job =
+      queued && staleProcessing
+        ? queued.updatedAt <= staleProcessing.updatedAt
+          ? queued
+          : staleProcessing
+        : queued ?? staleProcessing;
+
+    if (!job) return null;
+
+    await ctx.db.patch(job._id, {
+      status: "processing",
+      error: undefined,
+      failureReason: undefined,
+      updatedAt: now,
+    });
+
+    return {
+      jobId: job.jobId,
+      fileHash: job.fileHash,
+      fileName: job.fileName,
+      mimeType: job.mimeType,
+      extractionMode: job.extractionMode,
+      extractionModel: job.extractionModel,
+      clerkUserId: job.clerkUserId,
+      totalPages: job.totalPages,
+    };
+  },
+});
+
+export const getActiveExtractionJobForUpload = query({
+  args: {
+    secret: v.string(),
+    fileHash: v.string(),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
+    clerkUserId: v.optional(v.string()),
+    staleAfterMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const cutoff = Date.now() - args.staleAfterMs;
+    const jobs = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_file_hash", (q) => q.eq("fileHash", args.fileHash))
+      .collect();
+
+    const active = jobs
+      .filter((job) => {
+        if (job.status !== "queued" && job.status !== "processing") return false;
+        if (job.updatedAt <= cutoff) return false;
+        if (job.clerkUserId !== args.clerkUserId) return false;
+        if (job.extractionMode !== args.extractionMode) return false;
+        return job.extractionModel === args.extractionModel;
+      })
+      .sort((a, b) => a.createdAt - b.createdAt)[0];
+
+    if (!active) return null;
+
+    return {
+      jobId: active.jobId,
+      status: active.status,
+      fileHash: active.fileHash,
+      fileName: active.fileName,
+      totalPages: active.totalPages,
+      progressPagesProcessed: active.progressPagesProcessed,
+    };
   },
 });
 
@@ -357,19 +610,26 @@ export const getPdfExtractionByUserAndFile = query({
   handler: async (ctx, args) => {
     assertStorageSecret(args.secret);
 
-    if (args.clerkUserId) {
-      return await ctx.db
+    const row = args.clerkUserId
+      ? await ctx.db
         .query("pdfExtractionRecords")
         .withIndex("by_clerk_user_file_hash", (q) =>
           q.eq("clerkUserId", args.clerkUserId).eq("fileHash", args.fileHash),
         )
+        .first()
+      : await ctx.db
+        .query("pdfExtractionRecords")
+        .withIndex("by_file_hash", (q) => q.eq("fileHash", args.fileHash))
         .first();
-    }
 
-    return await ctx.db
-      .query("pdfExtractionRecords")
-      .withIndex("by_file_hash", (q) => q.eq("fileHash", args.fileHash))
-      .first();
+    if (!row) return null;
+
+    return {
+      ...row,
+      payloadUrl: row.payloadR2Key
+        ? await r2.getUrl(row.payloadR2Key, { expiresIn: 60 * 10 })
+        : undefined,
+    };
   },
 });
 
@@ -415,10 +675,122 @@ export const upsertPdfExtraction = mutation({
       summary: args.summary,
       mcqs: args.mcqs,
       sourceChunks: args.sourceChunks,
+      payloadStorage: "convex" as const,
+      payloadR2Key: undefined,
+      payloadSizeBytes: undefined,
       updatedAt: Date.now(),
     };
 
     if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("pdfExtractionRecords", {
+      ...payload,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const upsertPdfExtractionPayload = action({
+  args: {
+    secret: v.string(),
+    clerkUserId: v.optional(v.string()),
+    fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    pageCount: v.optional(v.number()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
+    appExtractionVersion: v.optional(v.string()),
+    title: v.string(),
+    summary: v.string(),
+    payloadBytes: v.bytes(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const r2Key = await r2.store(
+      ctx,
+      new Blob([args.payloadBytes], { type: EXTRACTION_PAYLOAD_MIME_TYPE }),
+      {
+        key: extractionPayloadR2Key({
+          kind: "pdf-extraction",
+          fileHash: args.fileHash,
+          clerkUserId: args.clerkUserId,
+        }),
+        type: EXTRACTION_PAYLOAD_MIME_TYPE,
+        cacheControl: "private, max-age=3600",
+      },
+    );
+
+    await ctx.runMutation(internal.extractionStorage.upsertPdfExtractionR2Metadata, {
+      clerkUserId: args.clerkUserId,
+      fileHash: args.fileHash,
+      fileName: args.fileName,
+      pageCount: args.pageCount,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      appExtractionVersion: args.appExtractionVersion,
+      title: args.title,
+      summary: args.summary,
+      payloadR2Key: r2Key,
+      payloadSizeBytes: args.payloadBytes.byteLength,
+    });
+
+    return r2Key;
+  },
+});
+
+export const upsertPdfExtractionR2Metadata = internalMutation({
+  args: {
+    clerkUserId: v.optional(v.string()),
+    fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    pageCount: v.optional(v.number()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
+    appExtractionVersion: v.optional(v.string()),
+    title: v.string(),
+    summary: v.string(),
+    payloadR2Key: v.string(),
+    payloadSizeBytes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = args.clerkUserId
+      ? await ctx.db
+          .query("pdfExtractionRecords")
+          .withIndex("by_clerk_user_file_hash", (q) =>
+            q.eq("clerkUserId", args.clerkUserId).eq("fileHash", args.fileHash),
+          )
+          .first()
+      : await ctx.db
+          .query("pdfExtractionRecords")
+          .withIndex("by_file_hash", (q) => q.eq("fileHash", args.fileHash))
+          .first();
+
+    const payload = {
+      clerkUserId: args.clerkUserId,
+      fileHash: args.fileHash,
+      fileName: args.fileName,
+      pageCount: args.pageCount,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      appExtractionVersion: args.appExtractionVersion,
+      title: args.title,
+      summary: args.summary,
+      mcqs: undefined,
+      sourceChunks: undefined,
+      payloadStorage: "r2" as const,
+      payloadR2Key: args.payloadR2Key,
+      payloadSizeBytes: args.payloadSizeBytes,
+      updatedAt: Date.now(),
+    };
+
+    if (existing) {
+      if (existing.payloadR2Key && existing.payloadR2Key !== args.payloadR2Key) {
+        await r2.deleteObject(ctx, existing.payloadR2Key);
+      }
       await ctx.db.patch(existing._id, payload);
       return existing._id;
     }

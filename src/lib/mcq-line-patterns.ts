@@ -61,10 +61,18 @@ export function hasQuestionIntent(text: string): boolean {
 
   return (
     /\?/.test(normalized) ||
-    /\b(?:which of the following|most appropriate|next step|best diagnosis|diagnosis|management|risk factor|what is|what are|how should)\b/i.test(
+    /\b(?:which of the following|most appropriate|next step|best diagnosis|diagnosis|management|risk factor|what is|what are|how should|what to do|what will you|what would you|what should|first line|first-line|prevention|treatment|prophylaxis|screening|indicate[sd]?|recommend|advise)\b/i.test(
       normalized,
     ) ||
-    /(?:أي مما يلي|ما هو|ما هي|الأنسب|الأصح|الأكثر احتمالاً|الأكثر شيوعاً)/.test(
+    // Recall document bullet-point question starters
+    /^[•\-–]\s+(?:case|scenario|patient|a \d|an \d|\d+[\s-]year|elderly|young|pregnant|child|woman|man|girl|boy|nurse|worker|physician)/i.test(
+      normalized,
+    ) ||
+    // Recall document: "what to give", "when to give", "how to manage" patterns
+    /\b(?:when to|how to|what to give|what to use|what to start|level of prevention|type of prevention|classify|stage|target)\b/i.test(
+      normalized,
+    ) ||
+    /(?:أي مما يلي|ما هو|ما هي|الأنسب|الأصح|الأكثر احتمالاً|الأكثر شيوعاً|ما العلاج|متى نعطي|كيف نتعامل)/.test(
       normalized,
     )
   );

@@ -5,6 +5,7 @@ import { ChevronRight, Menu, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
 const NAV_LINKS = [
@@ -76,7 +77,13 @@ function LocalAuthActions({ layout = "desktop", onAction }: HeaderActionsProps) 
       <Link
         href={DASHBOARD_HREF}
         className={getPrimaryButtonClass(layout)}
-        onClick={onAction}
+        onClick={() => {
+          captureConversionEvent("signup_cta_clicked", {
+            surface: "site_header",
+            layout,
+          });
+          onAction?.();
+        }}
       >
         Sign up
       </Link>
@@ -155,6 +162,14 @@ function ClerkAuthActions({ layout = "desktop", onAction }: HeaderActionsProps) 
         type="button"
         className={getPrimaryButtonClass(layout)}
         onClick={() => {
+          captureConversionEvent("signup_cta_clicked", {
+            surface: "site_header",
+            layout,
+          });
+          captureConversionEvent("signup_started", {
+            surface: "site_header",
+            layout,
+          });
           onAction?.();
           openSignUp({
             fallbackRedirectUrl: DASHBOARD_HREF,

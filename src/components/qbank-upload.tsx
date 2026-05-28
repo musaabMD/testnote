@@ -17,6 +17,11 @@ import {
 } from "@/lib/process-pdf-upload";
 import { UPLOAD_ACCEPT_ATTRIBUTE } from "@/lib/upload-file-types";
 import {
+  getUploadProgressDetail,
+  getUploadProgressLabel,
+  getUploadProgressPercent,
+} from "@/lib/upload-progress";
+import {
   useEffect,
   useRef,
   useState,
@@ -30,6 +35,9 @@ interface UploadedFile {
   file: File;
   progress: number;
   done: boolean;
+  statusLabel?: string;
+  detail?: string;
+  safeToLeave?: boolean;
   error?: string;
 }
 
@@ -45,6 +53,7 @@ export type QBankUploadSnapshot = {
   totalItems: number;
   allFilesReady: boolean;
   isProcessing: boolean;
+  safeToLeave: boolean;
   hasErrors: boolean;
   errorMessage?: string;
 };
@@ -81,13 +90,17 @@ export function QBankUpload({
 
   const totalItems = uploadedFiles.length + textEntries.length;
   const isProcessing = uploadedFiles.some((item) => !item.done && !item.error);
+  const safeToLeave = uploadedFiles.some(
+    (item) => item.safeToLeave && !item.done && !item.error,
+  );
   const hasErrors =
     Boolean(globalError) || uploadedFiles.some((item) => Boolean(item.error));
   const allFilesReady =
     uploadedFiles.length > 0 &&
     uploadedFiles.every((item) => item.done || Boolean(item.error)) &&
     !isProcessing;
-  const canContinue = totalItems > 0 && allFilesReady && !hasErrors;
+  const canContinue =
+    totalItems > 0 && (allFilesReady || safeToLeave) && !hasErrors;
 
   useEffect(() => {
     onChange?.({
@@ -96,6 +109,7 @@ export function QBankUpload({
       totalItems,
       allFilesReady,
       isProcessing,
+      safeToLeave,
       hasErrors,
       errorMessage: globalError || uploadedFiles.find((item) => item.error)?.error,
     });
@@ -105,6 +119,7 @@ export function QBankUpload({
     totalItems,
     allFilesReady,
     isProcessing,
+    safeToLeave,
     hasErrors,
     globalError,
     onChange,
@@ -138,15 +153,54 @@ export function QBankUpload({
     setGlobalError("");
     setUploadedFiles((prev) =>
       prev.map((item) =>
-        item.id === entry.id ? { ...item, progress: 15, done: false, error: undefined } : item,
+        item.id === entry.id
+          ? {
+              ...item,
+              progress: 8,
+              done: false,
+              statusLabel: "Checking file",
+              detail: "Preparing the upload receipt.",
+              safeToLeave: false,
+              error: undefined,
+            }
+          : item,
       ),
     );
 
     try {
-      await processPdfUploads([entry.file], { append: true });
+      await processPdfUploads([entry.file], {
+        append: true,
+        onJobStarted: (record) => {
+          setUploadedFiles((prev) =>
+            prev.map((item) =>
+              item.id === entry.id
+                ? {
+                    ...item,
+                    progress: getUploadProgressPercent(record),
+                    done: false,
+                    statusLabel: getUploadProgressLabel(record),
+                    detail: getUploadProgressDetail(record),
+                    safeToLeave: true,
+                    error: undefined,
+                  }
+                : item,
+            ),
+          );
+        },
+      });
       setUploadedFiles((prev) =>
         prev.map((item) =>
-          item.id === entry.id ? { ...item, progress: 100, done: true, error: undefined } : item,
+          item.id === entry.id
+            ? {
+                ...item,
+                progress: 100,
+                done: true,
+                statusLabel: "Ready to study",
+                detail: "Open the dashboard to quiz, review, or run exam mode.",
+                safeToLeave: false,
+                error: undefined,
+              }
+            : item,
         ),
       );
     } catch (error) {
@@ -156,7 +210,15 @@ export function QBankUpload({
       setUploadedFiles((prev) =>
         prev.map((item) =>
           item.id === entry.id
-            ? { ...item, progress: 0, done: false, error: message }
+            ? {
+                ...item,
+                progress: 100,
+                done: false,
+                statusLabel: "Upload failed",
+                detail: "Fix the issue and retry this file.",
+                safeToLeave: false,
+                error: message,
+              }
             : item,
         ),
       );
@@ -169,6 +231,8 @@ export function QBankUpload({
       file,
       progress: 0,
       done: false,
+      statusLabel: "Waiting to start",
+      detail: "File accepted by the browser.",
     };
     setUploadedFiles((prev) => [...prev, entry]);
     void uploadFile(entry);
@@ -288,7 +352,7 @@ export function QBankUpload({
                 </div>
                 <div className="ml-2 flex shrink-0 items-center gap-1.5">
                   <span className="font-mono text-xs text-gray-400">
-                    {item.done ? "Done" : item.error ? "Failed" : `${item.progress}%`}
+                    {item.done ? "Ready" : item.error ? "Failed" : `${item.progress}%`}
                   </span>
                   <button
                     aria-label={`Remove ${item.file.name}`}
@@ -305,6 +369,17 @@ export function QBankUpload({
                   <QuotaLimitBanner compact message={item.error} />
                 </div>
               ) : null}
+              <div className="mb-2">
+                <p className="text-xs font-semibold text-gray-700">
+                  {item.statusLabel ??
+                    (item.done ? "Ready to study" : "Preparing upload")}
+                </p>
+                {item.detail ? (
+                  <p className="mt-0.5 text-xs leading-4 text-gray-400">
+                    {item.detail}
+                  </p>
+                ) : null}
+              </div>
               <div className="h-1 w-full overflow-hidden rounded-full bg-gray-100">
                 <div
                   className={`h-full rounded-full transition-all duration-200 ${
@@ -424,14 +499,18 @@ export function QBankUpload({
             />
           </div>
           <p className="text-base font-bold text-gray-900">
-            {isProcessing
-              ? "Extracting questions…"
+            {safeToLeave
+              ? "Working in the background"
+              : isProcessing
+                ? "Checking your upload…"
               : isDashboard
                 ? "Drop your files here"
                 : "Drop files or click to browse"}
           </p>
           <p className="mt-1 text-sm text-gray-400">
-            PDF, images, and text — MCQs extracted automatically
+            {safeToLeave
+              ? "Safe to leave this page. Progress will continue."
+              : "PDF, images, and text — MCQs extracted automatically"}
           </p>
         </div>
 
@@ -476,7 +555,7 @@ export function QBankUpload({
               }`}
               href="/dashboard"
             >
-              Continue
+              {safeToLeave && !allFilesReady ? "View progress" : "Continue"}
               <ArrowRight size={15} strokeWidth={2.5} />
             </Link>
           </div>

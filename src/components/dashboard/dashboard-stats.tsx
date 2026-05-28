@@ -19,13 +19,6 @@ const pillBtn =
 const streakBtn =
   "inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full border-2 border-b-[4px] border-orange-200 bg-[#fff4e6] px-3 text-sm font-extrabold tabular-nums text-[#ff9600] shadow-[0_1px_0_#ffb84d] transition active:translate-y-px active:border-b-2";
 
-const planLabel = {
-  free: "Free",
-  starter: "Starter",
-  pro: "Pro",
-  school: "School",
-} as const;
-
 const CONVEX_AUTH_TIMEOUT_MS = 8000;
 
 type UsageDashboard = {
@@ -43,47 +36,6 @@ type UsageDashboard = {
     chatLimit: number;
   };
 };
-
-function buildUsageDashboard(
-  user:
-    | {
-        plan?: string | null;
-        creditsRemaining?: number | null;
-        monthlyCredits?: number | null;
-        streak?: number | null;
-        monthlyFileLimit?: number | null;
-        monthlyPageLimit?: number | null;
-        monthlyChatLimit?: number | null;
-      }
-    | null
-    | undefined,
-): UsageDashboard | null {
-  if (!user) return null;
-
-  const plan =
-    user.plan === "starter" ||
-    user.plan === "pro" ||
-    user.plan === "school"
-      ? user.plan
-      : "free";
-  const creditsAllowance = user.monthlyCredits ?? 1000;
-
-  return {
-    plan,
-    planLabel: planLabel[plan],
-    creditsRemaining: user.creditsRemaining ?? creditsAllowance,
-    creditsAllowance,
-    streak: user.streak ?? 0,
-    usage: {
-      filesUploaded: 0,
-      filesLimit: user.monthlyFileLimit ?? 3,
-      pagesProcessed: 0,
-      pagesLimit: user.monthlyPageLimit ?? 100,
-      chatMessages: 0,
-      chatLimit: user.monthlyChatLimit ?? 600,
-    },
-  };
-}
 
 type DashboardStatsProps = {
   files: PdfFileQueueItem[];
@@ -119,13 +71,9 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
   const [panel, setPanel] = useState<"usage" | "streak" | "score" | null>(null);
   const convexAuthTimedOut = authLoading && authWaitExpired;
   const usageUnavailable = convexAuthTimedOut || (!authLoading && !isAuthenticated);
-  const currentUser = useQuery(
-    api.users.current,
+  const usage: UsageDashboard | null | undefined = useQuery(
+    api.users.getMyUsageDashboard,
     usageUnavailable ? "skip" : {},
-  );
-  const usage = useMemo(
-    () => buildUsageDashboard(currentUser),
-    [currentUser],
   );
   const upsertCurrent = useMutation(api.users.upsertCurrent);
 
