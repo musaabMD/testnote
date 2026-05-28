@@ -11,6 +11,30 @@ function assertStorageSecret(secret: string) {
   }
 }
 
+function safeR2PathSegment(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || "unknown";
+}
+
+function r2ObjectPrefixSegments() {
+  return (process.env.R2_OBJECT_PREFIX ?? "")
+    .split("/")
+    .map((segment) => safeR2PathSegment(segment.trim()))
+    .filter(Boolean);
+}
+
+function sourcePreviewR2Key(args: {
+  fileId: string;
+  pageNumber: number;
+  sourcePagePreviewId: string;
+}) {
+  return [
+    ...r2ObjectPrefixSegments(),
+    "source-previews",
+    safeR2PathSegment(args.fileId),
+    `page-${args.pageNumber}-${safeR2PathSegment(args.sourcePagePreviewId)}-${crypto.randomUUID()}.webp`,
+  ].join("/");
+}
+
 const EXTRACTION_PAYLOAD_MIME_TYPE = "application/json";
 
 function safePathSegment(value: string) {
@@ -479,6 +503,128 @@ export const getActiveExtractionJobForUpload = query({
   },
 });
 
+export const claimQueuedExtractionJobForUpload = mutation({
+  args: {
+    secret: v.string(),
+    extractionKey: v.string(),
+    jobId: v.string(),
+    ownerId: v.string(),
+    fileHash: v.string(),
+    fileName: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    extractionMode: v.optional(v.string()),
+    extractionModel: v.optional(v.string()),
+    clerkUserId: v.optional(v.string()),
+    totalPages: v.number(),
+    staleAfterMs: v.number(),
+    retryCooldownMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_extraction_key", (q) => q.eq("extractionKey", args.extractionKey))
+      .first();
+
+    if (existing) {
+      if (existing.status === "ready") {
+        return {
+          owner: false,
+          status: "ready" as const,
+          jobId: existing.jobId,
+          failureReason: existing.failureReason,
+        };
+      }
+
+      const stillActive =
+        (existing.status === "queued" || existing.status === "processing") &&
+        existing.updatedAt > now - args.staleAfterMs;
+      if (stillActive) {
+        return {
+          owner: false,
+          status: existing.status,
+          jobId: existing.jobId,
+          failureReason: existing.failureReason,
+        };
+      }
+
+      const failedRecently =
+        existing.status === "failed" &&
+        existing.updatedAt > now - args.retryCooldownMs;
+      if (failedRecently || isPermanentFailure(existing.failureReason)) {
+        return {
+          owner: false,
+          status: "failed" as const,
+          jobId: existing.jobId,
+          failureReason: existing.failureReason,
+          error: existing.error,
+        };
+      }
+
+      await ctx.db.patch(existing._id, {
+        jobId: args.jobId,
+        ownerId: args.ownerId,
+        fileHash: args.fileHash,
+        fileName: args.fileName,
+        mimeType: args.mimeType,
+        extractionMode: args.extractionMode,
+        extractionModel: args.extractionModel,
+        clerkUserId: args.clerkUserId,
+        status: "queued",
+        progressPagesProcessed: 0,
+        totalPages: args.totalPages,
+        error: undefined,
+        failureReason: undefined,
+        updatedAt: now,
+      });
+
+      return {
+        owner: true,
+        status: "queued" as const,
+        jobId: args.jobId,
+      };
+    }
+
+    const existingJob = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_job_id", (q) => q.eq("jobId", args.jobId))
+      .first();
+
+    const payload = {
+      jobId: args.jobId,
+      extractionKey: args.extractionKey,
+      ownerId: args.ownerId,
+      fileHash: args.fileHash,
+      fileName: args.fileName,
+      mimeType: args.mimeType,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      clerkUserId: args.clerkUserId,
+      status: "queued",
+      progressPagesProcessed: 0,
+      totalPages: args.totalPages,
+      updatedAt: now,
+    } as const;
+
+    if (existingJob) {
+      await ctx.db.patch(existingJob._id, payload);
+    } else {
+      await ctx.db.insert("extractionJobs", {
+        ...payload,
+        createdAt: now,
+      });
+    }
+
+    return {
+      owner: true,
+      status: "queued" as const,
+      jobId: args.jobId,
+    };
+  },
+});
+
 export const claimExtractionJob = mutation({
   args: {
     secret: v.string(),
@@ -817,12 +963,20 @@ export const getQuestionSource = query({
 
     if (!row) return null;
 
+    const imageUrl =
+      row.previewR2Key
+        ? (await r2.getUrl(row.previewR2Key, { expiresIn: 60 * 60 }).catch(() => null)) ??
+          row.imageUrl
+        : row.imageUrl;
+
     return {
       questionId: row.questionId,
       fileId: row.fileId,
       sourcePagePreviewId: row.sourcePagePreviewId,
       pageNumber: row.pageNumber,
-      imageUrl: row.imageUrl,
+      imageUrl,
+      previewMimeType: row.previewMimeType,
+      previewR2Key: row.previewR2Key,
       width: row.width,
       height: row.height,
       sourceRegion: row.sourceRegion,
@@ -847,11 +1001,19 @@ export const getQuestionSourceForPage = query({
     const row = rows.find((item) => item.pageNumber === args.pageNumber);
     if (!row) return null;
 
+    const imageUrl =
+      row.previewR2Key
+        ? (await r2.getUrl(row.previewR2Key, { expiresIn: 60 * 60 }).catch(() => null)) ??
+          row.imageUrl
+        : row.imageUrl;
+
     return {
       id: row.sourcePagePreviewId,
       fileId: row.fileId,
       pageNumber: row.pageNumber,
-      imageUrl: row.imageUrl,
+      imageUrl,
+      previewMimeType: row.previewMimeType,
+      previewR2Key: row.previewR2Key,
       width: row.width,
       height: row.height,
     };
@@ -866,6 +1028,8 @@ export const upsertQuestionSource = mutation({
     sourcePagePreviewId: v.string(),
     pageNumber: v.number(),
     imageUrl: v.string(),
+    previewMimeType: v.optional(v.string()),
+    previewR2Key: v.optional(v.string()),
     width: v.number(),
     height: v.number(),
     sourceRegion: v.any(),
@@ -885,6 +1049,8 @@ export const upsertQuestionSource = mutation({
       sourcePagePreviewId: args.sourcePagePreviewId,
       pageNumber: args.pageNumber,
       imageUrl: args.imageUrl,
+      previewMimeType: args.previewMimeType,
+      previewR2Key: args.previewR2Key,
       width: args.width,
       height: args.height,
       sourceRegion: args.sourceRegion,
@@ -893,6 +1059,19 @@ export const upsertQuestionSource = mutation({
     };
 
     if (existing) {
+      if (existing.previewR2Key && existing.previewR2Key !== args.previewR2Key) {
+        const rowsWithSameFile = await ctx.db
+          .query("questionSources")
+          .withIndex("by_file_id", (q) => q.eq("fileId", existing.fileId))
+          .collect();
+        const keyStillReferenced = rowsWithSameFile.some(
+          (row) =>
+            row._id !== existing._id && row.previewR2Key === existing.previewR2Key,
+        );
+        if (!keyStillReferenced) {
+          await r2.deleteObject(ctx, existing.previewR2Key);
+        }
+      }
       await ctx.db.patch(existing._id, payload);
       return existing._id;
     }
@@ -901,6 +1080,29 @@ export const upsertQuestionSource = mutation({
       ...payload,
       createdAt: Date.now(),
     });
+  },
+});
+
+export const storeQuestionSourcePreview = action({
+  args: {
+    secret: v.string(),
+    fileId: v.string(),
+    sourcePagePreviewId: v.string(),
+    pageNumber: v.number(),
+    imageBytes: v.bytes(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const r2Key = await r2.store(ctx, new Blob([args.imageBytes], { type: "image/webp" }), {
+      key: sourcePreviewR2Key(args),
+      type: "image/webp",
+      disposition: `inline; filename="page-${args.pageNumber}.webp"`,
+      cacheControl: "private, max-age=3600",
+    });
+
+    const url = await r2.getUrl(r2Key, { expiresIn: 60 * 60 });
+    return { r2Key, url };
   },
 });
 

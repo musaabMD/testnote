@@ -51,6 +51,17 @@ function parseMode(value: string | null): StudyMode {
   return "quiz";
 }
 
+function fileDetailsHref(fileId: string) {
+  return `/dashboard/content?file=${encodeURIComponent(fileId)}`;
+}
+
+function safeReturnHref(value: string | null, fallback: string) {
+  if (!value) return fallback;
+  if (!value.startsWith("/dashboard/content")) return fallback;
+  if (value.startsWith("/dashboard/content/study")) return fallback;
+  return value;
+}
+
 export default function PdfStudyPage() {
   return (
     <Suspense
@@ -70,6 +81,10 @@ function PdfStudyPageContent() {
   const searchParams = useSearchParams();
   const fileId = searchParams.get("file") ?? "";
   const mode = parseMode(searchParams.get("mode"));
+  const returnHref = safeReturnHref(
+    searchParams.get("returnTo"),
+    fileId ? fileDetailsHref(fileId) : "/dashboard",
+  );
 
   const { file, isLoading } = useStudyFile(fileId);
   const recordStudyActivity = useMutation(api.users.recordStudyActivity);
@@ -111,21 +126,40 @@ function PdfStudyPageContent() {
 
   function recordAnswer(questionId: string, answer: QuestionAnswer) {
     if (!file) return;
-    touchStudyActivity();
-    captureConversionEvent("study_action_completed", {
-      action_type: mode,
-      file_id: file.id,
-      question_count: file.result.mcqs.length,
-    });
-    void recordStudyActivity({});
     setQuizAnswers((current) => {
       const next = {
         ...current,
         [file.id]: { ...(current[file.id] ?? {}), [questionId]: answer },
       };
-      window.localStorage.setItem(PDF_QUIZ_ANSWERS_KEY, JSON.stringify(next));
+      try {
+        window.localStorage.setItem(PDF_QUIZ_ANSWERS_KEY, JSON.stringify(next));
+      } catch {
+        // Keep the answer visible even if browser persistence is unavailable.
+      }
       return next;
     });
+
+    try {
+      touchStudyActivity();
+    } catch {
+      // Activity telemetry should never block answer selection.
+    }
+
+    try {
+      captureConversionEvent("study_action_completed", {
+        action_type: mode,
+        file_id: file.id,
+        question_count: file.result.mcqs.length,
+      });
+    } catch {
+      // Conversion telemetry is best effort.
+    }
+
+    try {
+      void recordStudyActivity({}).catch(() => {});
+    } catch {
+      // Convex availability should not affect local quiz progress.
+    }
   }
 
   const openQuestionSource = useCallback(
@@ -173,9 +207,20 @@ function PdfStudyPageContent() {
     const answered = Object.keys(quizAnswers[file.id] ?? {}).length;
     return Math.max(0, file.result.mcqs.length - answered);
   }, [file, quizAnswers]);
+  const studyFile = useMemo(() => {
+    if (!file) return null;
+    if (searchParams.get("preset") !== "quick-10") return file;
+    return {
+      ...file,
+      result: {
+        ...file.result,
+        mcqs: file.result.mcqs.slice(0, 10),
+      },
+    };
+  }, [file, searchParams]);
 
   return (
-    <StudySessionChromeProvider onBack={() => handleNavAttempt("/dashboard")}>
+    <StudySessionChromeProvider onBack={() => handleNavAttempt(returnHref)}>
       <main
         className={`flex min-h-screen flex-col text-slate-950 ${
           mode === "exam" ? "bg-slate-100" : "bg-white"
@@ -187,7 +232,7 @@ function PdfStudyPageContent() {
               <p className="text-sm font-semibold text-slate-400">Loading study session…</p>
             </div>
           </section>
-        ) : !file ? (
+        ) : !file || !studyFile ? (
           <section className="mx-auto max-w-[1180px] px-4 py-8">
             <div className="rounded-3xl bg-slate-50 p-12 text-center">
               <h1 className="text-xl font-black text-slate-950">File not found</h1>
@@ -206,7 +251,7 @@ function PdfStudyPageContent() {
           <>
             <PdfStudyPanel
               bookmarkedQuestionIds={new Set(questionBookmarks[file.id] ?? [])}
-              file={file}
+              file={studyFile}
               layout="full"
               mode={mode}
               onModeChange={(nextMode) => router.push(studyModeHref(file.id, nextMode))}
@@ -216,9 +261,10 @@ function PdfStudyPageContent() {
               }}
               onToggleBookmark={toggleQuestionBookmark}
               questionAnswers={quizAnswers[file.id] ?? {}}
+              returnHref={returnHref}
             />
             <SourceDevToolbar
-              file={file}
+              file={studyFile}
               onFileUpdated={(nextFile) => {
                 saveFileQueueItem(nextFile);
               }}

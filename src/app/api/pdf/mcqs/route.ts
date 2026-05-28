@@ -2,10 +2,14 @@ import { randomUUID } from "node:crypto";
 import { storeSourceFileInConvex } from "@/lib/convex-source-file.server";
 import { enforceApiRateLimit } from "@/lib/api-rate-limit.server";
 import {
+  claimQueuedExtractionJobForUpload,
   createExtractionJob,
-  getActiveExtractionJobForUpload,
 } from "@/lib/extraction-job-store.server";
-import { parseExtractionMode } from "@/lib/extraction-config";
+import {
+  buildExtractionCacheKey,
+  extractionCacheKeyId,
+  parseExtractionMode,
+} from "@/lib/extraction-config";
 import { sha256FileBytes } from "@/lib/file-hash.server";
 import { getMistralOcrModel } from "@/lib/mistral-ocr.server";
 import { estimateOcrCostUsd, reserveCostUsd } from "@/lib/plan-limits.server";
@@ -153,36 +157,6 @@ async function queueExtractionUpload(
     );
   }
 
-  const jobId = randomUUID();
-  const activeJob = await timing.measure("active_job_lookup", () =>
-    getActiveExtractionJobForUpload({
-      fileHash,
-      extractionMode,
-      extractionModel: model,
-      clerkUserId,
-    }).catch((error) => {
-      if (process.env.NODE_ENV === "development") {
-        console.warn("[upload] active job lookup failed", error);
-      }
-      return null;
-    }),
-  );
-
-  if (activeJob) {
-    return jsonWithTiming(
-      timing,
-      {
-        jobId: activeJob.jobId,
-        status: activeJob.status,
-        fileHash: activeJob.fileHash,
-        fileName: activeJob.fileName ?? displayFileName,
-        pageCount: activeJob.totalPages || pageCount,
-        inFlightHit: true,
-      },
-      { status: 202 },
-    );
-  }
-
   const sourceStored = await timing.measure("source_store", () =>
     storeSourceFileInConvex({
       clerkUserId,
@@ -206,9 +180,14 @@ async function queueExtractionUpload(
     );
   }
 
-  await timing.measure("job_create", () =>
-    createExtractionJob({
+  const jobId = randomUUID();
+  const extractionKey = extractionCacheKeyId(
+    buildExtractionCacheKey(fileHash, extractionMode, model),
+  );
+  const queuedClaim = await timing.measure("job_claim", () =>
+    claimQueuedExtractionJobForUpload({
       jobId,
+      extractionKey,
       fileHash,
       fileName: displayFileName,
       mimeType,
@@ -216,8 +195,45 @@ async function queueExtractionUpload(
       extractionModel: model,
       totalPages: pageCount,
       clerkUserId,
+    }).catch((error) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[upload] queued job claim failed", error);
+      }
+      return null;
     }),
   );
+
+  if (queuedClaim && !queuedClaim.owner) {
+    return jsonWithTiming(
+      timing,
+      {
+        jobId: queuedClaim.jobId,
+        status: queuedClaim.status,
+        fileHash,
+        fileName: displayFileName,
+        pageCount,
+        inFlightHit: true,
+        failureReason: queuedClaim.failureReason,
+      },
+      { status: 202 },
+    );
+  }
+
+  if (!queuedClaim) {
+    await timing.measure("job_create", () =>
+      createExtractionJob({
+        jobId,
+        extractionKey,
+        fileHash,
+        fileName: displayFileName,
+        mimeType,
+        extractionMode,
+        extractionModel: model,
+        totalPages: pageCount,
+        clerkUserId,
+      }),
+    );
+  }
 
   try {
     void triggerExtractionWorker(request).catch((error) => {
@@ -239,7 +255,7 @@ async function queueExtractionUpload(
     return jsonWithTiming(
       timing,
       {
-        jobId,
+        jobId: queuedClaim?.jobId ?? jobId,
         status: "queued",
         fileHash,
         fileName: displayFileName,

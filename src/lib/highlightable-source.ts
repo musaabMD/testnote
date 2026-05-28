@@ -36,6 +36,8 @@ export type SourcePagePreview = {
   fileId: string;
   pageNumber: number;
   imageUrl: string;
+  previewMimeType?: "image/png" | "image/jpeg" | "image/webp";
+  previewR2Key?: string;
   width: number;
   height: number;
 };
@@ -48,6 +50,8 @@ export type QuestionSourcePayload =
       sourcePagePreviewId: string;
       pageNumber: number;
       imageUrl: string;
+      previewMimeType?: "image/png" | "image/jpeg" | "image/webp";
+      previewR2Key?: string;
       width: number;
       height: number;
       sourceRegion: SourceRegion;

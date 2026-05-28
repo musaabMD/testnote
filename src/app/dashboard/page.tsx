@@ -1,7 +1,6 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { AddSourceCard } from "@/components/dashboard/add-source-card";
 import { DashboardGreeting } from "@/components/dashboard/dashboard-greeting";
 import { DashboardStats } from "@/components/dashboard/dashboard-stats";
 import { FileList } from "@/components/pdf/file-list";
@@ -204,8 +203,8 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <header className="sticky top-0 z-50 bg-white/80 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/70">
-        <div className="mx-auto flex h-16 max-w-3xl items-center gap-3">
+      <header className="sticky top-0 z-50 border-b border-[#ece7ff] bg-white/90 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/78">
+        <div className="mx-auto flex h-16 max-w-[1100px] items-center gap-3">
           <Link href="/" className="flex shrink-0 items-center gap-2" aria-label={`${APP_NAME} home`}>
             <Image
               alt={APP_NAME}
@@ -224,25 +223,11 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
-        <DashboardGreeting userName={userName} />
-
-        {isReady && files && files.length > 0 ? (
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-            <h3 className="text-base font-bold text-slate-900">Your courses</h3>
-            <AddSourceCard
-              isProcessing={isProcessing}
-              onAdd={() => beginUploadOnboarding()}
-              onAddFiles={(incoming) => {
-                beginUploadOnboarding(incoming);
-              }}
-            />
-          </div>
-        ) : null}
-
+      <section className="mx-auto max-w-[920px] px-4 py-6 sm:px-6 sm:py-8">
         <FileList
           dragOver={dragOver}
           files={files ?? []}
+          headerContent={<DashboardGreeting userName={userName} />}
           isProcessing={isProcessing}
           isReady={isReady}
           onPickFiles={() => beginUploadOnboarding()}

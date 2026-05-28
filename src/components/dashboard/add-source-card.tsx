@@ -23,7 +23,7 @@ export function AddSourceCard({
 
   return (
     <button
-      className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors duration-150 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 data-[drag-over=true]:border-indigo-400 data-[drag-over=true]:bg-indigo-700"
+      className="inline-flex h-12 items-center gap-2 rounded-2xl border-2 border-[#263238] border-b-4 border-b-[#111827] bg-[#263238] px-5 text-sm font-black text-white shadow-sm transition hover:bg-[#374151] active:translate-y-0.5 active:border-b-2 disabled:cursor-not-allowed disabled:opacity-60 data-[drag-over=true]:border-[#111827] data-[drag-over=true]:bg-[#111827]"
       data-drag-over={dragOver || undefined}
       disabled={isProcessing}
       onClick={onAdd}
@@ -43,7 +43,9 @@ export function AddSourceCard({
       {isProcessing ? (
         <Loader2 aria-hidden className="size-4 animate-spin" />
       ) : (
-        <Plus aria-hidden className="size-4" strokeWidth={2.5} />
+        <span className="grid size-6 place-items-center rounded-full bg-white/20">
+          <Plus aria-hidden className="size-4" strokeWidth={3} />
+        </span>
       )}
       {isProcessing ? "Extracting questions…" : "Add new course"}
     </button>

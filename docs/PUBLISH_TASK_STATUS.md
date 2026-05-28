@@ -29,7 +29,7 @@ Legend:
 ## P1: Needed Before Serious Beta
 
 16. ✅ Use R2/Convex for original uploaded files for now: production R2 credentials on Convex + Vercel; production deploy live. Upload endpoint returns `202 queued` (verified 2026-05-26).
-17. ✅ Add durable source preview image storage: server-generated source page previews are stored and read through Convex `questionSources`; R2/webp optimization is still deferred.
+17. ✅ Add durable source preview image storage: server-generated source page previews are encoded as WebP, stored through Convex R2 when configured, and read through Convex `questionSources`.
 18. ✅ Store Convex metadata for source files and extraction/cache records: schema has `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `extractionJobs`, and `questionSources`.
 19. ✅ Move extraction to durable background jobs: upload persists the source file before queueing, returns queued job status, triggers `/api/pdf/mcqs/worker`, and Convex Cron calls the worker every 2 minutes for recovery. Full `@convex-dev/workflow` migration remains optional hardening.
 20. ✅ Add upload job status and polling UI: `/api/pdf/mcqs` returns `202` with `jobId`, `/api/pdf/mcqs/jobs/[jobId]` exposes status/result, and the client polls.
@@ -98,7 +98,7 @@ Legend:
 - `fileCache`: extraction cache by file hash/model/version.
 - `pdfExtractionRecords`: persisted extracted MCQs and source chunks.
 - `extractionJobs`: job status model used by the queued upload/polling flow, although extraction is not on a durable background worker yet.
-- `questionSources`: source preview metadata.
+- `questionSources`: source preview metadata, signed R2 preview keys, and data URL fallback.
 - `usagePeriods`, `aiUsageEvents`, `quotaReservations`: quota and cost tracking.
 - `appAuditEvents`: quota, rate-limit, duplicate extraction, and source failure events.
 

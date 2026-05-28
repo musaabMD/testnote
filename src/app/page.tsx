@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Check } from "lucide-react";
 import { ConversionEventOnMount } from "@/components/conversion-event-on-mount";
+import { HeroRotatingLine } from "@/components/hero-feature-rotator";
+import { QBankUpload } from "@/components/qbank-upload";
 import { PublicHeader } from "@/components/site-header";
 
 export const metadata: Metadata = {
@@ -33,26 +35,37 @@ const studyQuestions = [
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-[#f7fbf8] text-slate-950">
+    <main className="min-h-screen bg-white text-slate-950">
       <ConversionEventOnMount
         eventName="landing_viewed"
         properties={{ surface: "homepage" }}
       />
       <PublicHeader />
 
-      <section className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-[1680px] grid-cols-1 gap-10 px-6 py-12 sm:px-10 lg:grid-cols-[0.76fr_1.24fr] lg:gap-16 lg:px-14 lg:py-16 xl:px-20">
-        <div className="lg:pt-3">
-          <h1 className="max-w-[620px] font-[family-name:var(--font-sora)] text-[3.1rem] font-black leading-[1.08] tracking-tight text-slate-900 sm:text-[4.6rem] lg:text-[4.9rem] xl:text-[5.55rem]">
-            All these study questions have the same answer: Yes!
+      <section className="border-b border-emerald-100 bg-white">
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[900px] flex-col items-center justify-center px-5 py-14 text-center sm:px-6 sm:py-16">
+          <h1 className="max-w-2xl font-[family-name:var(--font-sora)] text-[2.5rem] font-black leading-none tracking-tight text-slate-950 sm:text-6xl">
+            <span className="block whitespace-nowrap">Upload file. Get</span>
+            <HeroRotatingLine />
           </h1>
-        </div>
 
-        <div className="lg:justify-self-end">
+          <div id="upload" className="mt-12 w-full max-w-3xl scroll-mt-24">
+            <QBankUpload />
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-[1040px] px-6 py-16 sm:px-10">
+        <h2 className="mb-8 max-w-3xl font-[family-name:var(--font-sora)] text-[2rem] font-black leading-[1.12] tracking-tight text-slate-900 sm:text-[2.65rem] lg:text-[3.1rem]">
+          All these study questions have the same answer: Yes!
+        </h2>
+
+        <div>
           <ul className="w-full max-w-[1040px] space-y-3">
             {studyQuestions.map((question, index) => (
               <li
                 key={index}
-                className="flex items-start gap-3 font-[family-name:var(--font-dm-sans)] text-[1.32rem] font-medium leading-[1.16] text-slate-800 sm:gap-4 sm:text-[1.62rem] lg:text-[1.7rem] xl:text-[1.86rem]"
+                className="flex items-start gap-3 font-[family-name:var(--font-dm-sans)] text-xl font-medium leading-[1.2] text-slate-800 sm:gap-4 sm:text-2xl lg:text-[1.55rem] xl:text-[1.68rem]"
               >
                 <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-[#3f7ed9] text-white shadow-[inset_0_-1px_0_rgba(0,0,0,0.16)] sm:size-9 lg:size-8 xl:size-9">
                   <Check className="size-5 stroke-[3.4]" aria-hidden />
@@ -69,25 +82,6 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
-        </div>
-      </section>
-
-      <section className="border-t border-emerald-100 bg-white px-6 py-12 sm:px-10">
-        <div className="mx-auto grid max-w-[1180px] gap-5 sm:grid-cols-3">
-          {[
-            ["Upload", "Bring in a PDF, image, or pasted notes."],
-            ["Extract", "Let DrNote find usable practice questions."],
-            ["Practice", "Review, quiz, flashcard, or sit a mock exam."],
-          ].map(([title, text]) => (
-            <div key={title} className="rounded-[8px] border border-slate-200 p-5">
-              <span className="text-sm font-black uppercase tracking-[0.08em] text-emerald-700">
-                {title}
-              </span>
-              <p className="mt-2 text-base font-medium leading-7 text-slate-600">
-                {text}
-              </p>
-            </div>
-          ))}
         </div>
       </section>
     </main>

@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../../../convex/_generated/api";
 import Link from "next/link";
+import type { AdminClerkSnapshot } from "@/lib/admin-clerk-types";
 
 type RangeKey = "7d" | "30d" | "90d";
 type DetailKey = "growth" | "uploads" | "costs" | "coverage";
@@ -40,7 +41,25 @@ function pct(value: number | undefined) {
   return `${(value ?? 0).toFixed(1)}%`;
 }
 
-export default function AdminDashboard() {
+function percentOf(part: number | undefined, total: number | undefined) {
+  if (!total) return 0;
+  return ((part ?? 0) / total) * 100;
+}
+
+function formatDate(value: number | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export default function AdminDashboard({
+  clerkSnapshot,
+}: {
+  clerkSnapshot: AdminClerkSnapshot;
+}) {
   const [range, setRange] = useState<RangeKey>("30d");
   const [activeDetail, setActiveDetail] = useState<DetailKey | null>(null);
   const [toTimestamp, setToTimestamp] = useState<number | null>(null);
@@ -100,6 +119,11 @@ export default function AdminDashboard() {
     );
   }
 
+  const clerkActiveRatePct = percentOf(
+    clerkSnapshot.activeUsers30d,
+    clerkSnapshot.totalUsers,
+  );
+
   return (
     <main className="min-h-screen bg-zinc-950 px-4 py-6 text-zinc-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -112,8 +136,13 @@ export default function AdminDashboard() {
               DrNote Admin
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-              Real growth, upload, cost, and coverage metrics from the product ledgers.
+              Production Clerk users and billing, plus upload, cost, and coverage metrics from the product ledgers.
             </p>
+            {!clerkSnapshot.available ? (
+              <p className="mt-2 max-w-2xl text-xs text-amber-300">
+                Clerk metrics unavailable: {clerkSnapshot.error}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex w-full max-w-xs flex-col gap-3">
@@ -144,30 +173,42 @@ export default function AdminDashboard() {
           <MetricCard
             active={activeDetail === "growth"}
             facts={[
-              fact("24h", number(northStar.growth.registered.day.count), northStar.growth.registered.day.pctChange),
-              fact("7d", number(northStar.growth.registered.week.count), northStar.growth.registered.week.pctChange),
-              fact("30d", number(northStar.growth.registered.month.count), northStar.growth.registered.month.pctChange),
+              fact("24h", number(clerkSnapshot.newUsers.day.count), clerkSnapshot.newUsers.day.pctChange),
+              fact("7d", number(clerkSnapshot.newUsers.week.count), clerkSnapshot.newUsers.week.pctChange),
+              fact("30d", number(clerkSnapshot.newUsers.month.count), clerkSnapshot.newUsers.month.pctChange),
             ]}
             onClick={() => toggleDetail("growth", activeDetail, setActiveDetail)}
-            subtitle={`${pct(northStar.growth.weeklyGoalPct)} of ${number(
-              northStar.targetNewUsersPerWeek,
-            )}/week target, ${number(northStar.growth.weeklyGoalRemaining)} left`}
+            subtitle="New signups from the production Clerk user list"
             title="New users"
-            value={number(northStar.growth.registered.week.count)}
+            value={number(clerkSnapshot.newUsers.week.count)}
           />
           <MetricCard
             active={activeDetail === "growth"}
             facts={[
-              fact("24h", number(northStar.growth.active.day.count), northStar.growth.active.day.pctChange),
-              fact("7d", number(northStar.growth.active.week.count), northStar.growth.active.week.pctChange),
-              fact("30d", number(northStar.growth.active.month.count), northStar.growth.active.month.pctChange),
+              fact("24h", number(clerkSnapshot.activeUsers.day.count), clerkSnapshot.activeUsers.day.pctChange),
+              fact("7d", number(clerkSnapshot.activeUsers.week.count), clerkSnapshot.activeUsers.week.pctChange),
+              fact("30d", number(clerkSnapshot.activeUsers.month.count), clerkSnapshot.activeUsers.month.pctChange),
             ]}
             onClick={() => toggleDetail("growth", activeDetail, setActiveDetail)}
-            subtitle={`${pct(northStar.growth.monthlyActiveRatePct)} monthly active rate from ${number(
-              northStar.growth.totalUsers,
-            )} registered users`}
+            subtitle={`${pct(clerkActiveRatePct)} monthly active rate from ${number(
+              clerkSnapshot.totalUsers,
+            )} Clerk users`}
             title="Active users"
-            value={number(northStar.growth.active.month.count)}
+            value={number(clerkSnapshot.activeUsers.month.count)}
+          />
+          <MetricCard
+            active={activeDetail === "growth"}
+            facts={[
+              fact("Paid", number(clerkSnapshot.paidUsers)),
+              fact("Free", number(clerkSnapshot.freeUsers)),
+              fact("Lifetime", money(clerkSnapshot.lifetimeRevenueUsd)),
+            ]}
+            onClick={() => toggleDetail("growth", activeDetail, setActiveDetail)}
+            subtitle={`${number(clerkSnapshot.paidUsers)} paid users, ${money(
+              clerkSnapshot.nextPaymentRevenueUsd,
+            )} scheduled next payments`}
+            title="Clerk revenue"
+            value={money(clerkSnapshot.monthlyRecurringRevenueUsd)}
           />
           <MetricCard
             active={activeDetail === "uploads"}
@@ -224,6 +265,7 @@ export default function AdminDashboard() {
         {activeDetail ? (
           <DetailPanel
             activeDetail={activeDetail}
+            clerkSnapshot={clerkSnapshot}
             exams={exams ?? []}
             files={files ?? []}
             models={models ?? []}
@@ -243,6 +285,7 @@ export default function AdminDashboard() {
 
 function DetailPanel({
   activeDetail,
+  clerkSnapshot,
   exams,
   files,
   models,
@@ -251,6 +294,7 @@ function DetailPanel({
   users,
 }: {
   activeDetail: DetailKey;
+  clerkSnapshot: AdminClerkSnapshot;
   exams: Array<{
     examGoal: string;
     users: number;
@@ -318,9 +362,43 @@ function DetailPanel({
           <SimpleTable
             columns={["Metric", "24h", "24h %", "7d", "7d %", "30d", "30d %"]}
             rows={[
-              growthRow("Registered users", northStar.growth.registered),
-              growthRow("Active users", northStar.growth.active),
+              growthRow("Clerk registered users", clerkSnapshot.newUsers),
+              growthRow("Clerk active users", clerkSnapshot.activeUsers),
+              growthRow("Convex registered users", northStar.growth.registered),
+              growthRow("Convex active users", northStar.growth.active),
             ]}
+          />
+        </Section>
+        <Section title="Clerk users and billing">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Kpi title="Total Clerk users" value={number(clerkSnapshot.totalUsers)} />
+            <Kpi title="Paid users" value={number(clerkSnapshot.paidUsers)} />
+            <Kpi title="MRR" value={money(clerkSnapshot.monthlyRecurringRevenueUsd)} />
+            <Kpi title="Lifetime paid" value={money(clerkSnapshot.lifetimeRevenueUsd)} />
+          </div>
+          <SimpleTable
+            columns={[
+              "User",
+              "Name",
+              "Joined",
+              "Last active",
+              "Last sign-in",
+              "Plan",
+              "Status",
+              "MRR",
+              "Lifetime paid",
+            ]}
+            rows={clerkSnapshot.users.map((user) => [
+              user.email,
+              user.name,
+              formatDate(user.createdAt),
+              formatDate(user.lastActiveAt),
+              formatDate(user.lastSignInAt),
+              user.plan,
+              user.subscriptionStatus,
+              money(user.mrrUsd),
+              money(user.lifetimePaidUsd),
+            ])}
           />
         </Section>
         <Section title="Users needing margin attention">

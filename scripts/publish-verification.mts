@@ -34,6 +34,7 @@ for (const script of [
   "test:pipeline-safety",
   "test:extraction-failure",
   "test:source-qa",
+  "test:upload-file-types",
   "test:clerk-billing",
   "test:quiz-progress",
   "test:quota-errors",

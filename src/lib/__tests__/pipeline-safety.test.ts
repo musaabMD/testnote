@@ -366,7 +366,7 @@ describe("documentation and backlog", () => {
     assert.doesNotMatch(mcqsRoute, /\bafter\s*\(/);
     assert.match(mcqsRoute, /sourceStored/);
     assert.match(mcqsRoute, /triggerExtractionWorker/);
-    assert.match(mcqsRoute, /getActiveExtractionJobForUpload/);
+    assert.match(mcqsRoute, /claimQueuedExtractionJobForUpload/);
     assert.match(mcqsRoute, /inFlightHit:\s*true/);
     assert.match(mcqsRoute, /\/api\/pdf\/mcqs\/worker/);
   });
@@ -425,6 +425,28 @@ describe("documentation and backlog", () => {
     assert.match(sourceFileClient, /api\.r2\.syncMetadata/);
     assert.match(envExample, /R2_BUCKET=drnote-uploads-prod/);
     assert.match(envExample, /R2_ENDPOINT=https:\/\/5000e0a4f0ca6dd90b08bde9dc11ccb9\.r2\.cloudflarestorage\.com/);
+  });
+
+  it("keeps R2 source-page preview persistence wired", () => {
+    const schema = readFileSync(path.join(root, "convex/schema.ts"), "utf8");
+    const extractionStorage = readFileSync(
+      path.join(root, "convex/extractionStorage.ts"),
+      "utf8",
+    );
+    const sourcePreviewStore = readFileSync(
+      path.join(root, "src/lib/source-preview-store.server.ts"),
+      "utf8",
+    );
+
+    assert.match(schema, /previewR2Key/);
+    assert.match(schema, /previewMimeType/);
+    assert.match(extractionStorage, /storeQuestionSourcePreview/);
+    assert.match(extractionStorage, /sourcePreviewR2Key/);
+    assert.match(extractionStorage, /r2\.store/);
+    assert.match(extractionStorage, /r2\.getUrl/);
+    assert.match(sourcePreviewStore, /\.webp\(\{ quality: 82 \}\)/);
+    assert.match(sourcePreviewStore, /storePreviewImageInConvex/);
+    assert.match(sourcePreviewStore, /sourcePageImageUrl: storedPreview\.imageUrl/);
   });
 
   it("keeps large extraction payloads out of Convex documents", () => {
@@ -518,6 +540,45 @@ describe("documentation and backlog", () => {
     assert.match(http, /past_due/);
     assert.match(billing, /subscriptionMetadata: \{ userId: identity\.subject, priceId: args\.priceId \}/);
     assert.match(usageLedger, /activeExtractionLimit/);
+  });
+
+  it("keeps public pricing copy within Convex plan limits", () => {
+    const pricing = readFileSync(
+      path.join(root, "src/components/pricing-plans.tsx"),
+      "utf8",
+    );
+    const planLimits = readFileSync(path.join(root, "convex/planLimits.ts"), "utf8");
+    const clerkBilling = readFileSync(
+      path.join(root, "src/lib/clerk-billing.server.ts"),
+      "utf8",
+    );
+    const envExample = readFileSync(path.join(root, ".env.example"), "utf8");
+
+    assert.match(pricing, /slug: "pro"/);
+    assert.match(pricing, /value: "10k"/);
+    assert.match(pricing, /value: "100"/);
+    assert.match(pricing, /value: "500"/);
+    assert.match(pricing, /Up to 250 MB per file/);
+    assert.match(planLimits, /monthlyPageLimit: 10_000/);
+    assert.match(planLimits, /monthlyFileLimit: 100/);
+    assert.match(planLimits, /chatMessagesPerDay: 500/);
+    assert.match(planLimits, /maxFileSizeBytes: 250 \* 1024 \* 1024/);
+
+    assert.match(pricing, /slug: "max"/);
+    assert.match(pricing, /value: "100k"/);
+    assert.match(pricing, /value: "500"/);
+    assert.match(pricing, /value: "2k"/);
+    assert.match(pricing, /Up to 500 MB per file/);
+    assert.match(planLimits, /monthlyPageLimit: 100_000/);
+    assert.match(planLimits, /monthlyFileLimit: 500/);
+    assert.match(planLimits, /chatMessagesPerDay: 2000/);
+    assert.match(planLimits, /maxFileSizeBytes: 500 \* 1024 \* 1024/);
+
+    assert.match(clerkBilling, /CLERK_BILLING_MAX_PLAN/);
+    assert.match(clerkBilling, /convexPlan: "school"/);
+    assert.match(envExample, /CLERK_BILLING_PRO_PLAN=pro/);
+    assert.match(envExample, /CLERK_BILLING_MAX_PLAN=max/);
+    assert.match(envExample, /CLERK_BILLING_STARTER_PLAN=starter/);
   });
 
   it("keeps internal cost report wiring", () => {

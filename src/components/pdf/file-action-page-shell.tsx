@@ -4,17 +4,17 @@ import { useStudyFile } from "@/hooks/use-study-files";
 import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
 import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
 
 type FileActionPageShellProps = {
-  title: string;
+  title?: string;
   children: (file: NonNullable<ReturnType<typeof useStudyFile>["file"]>) => ReactNode;
 };
 
-export function FileActionPageShell({ title, children }: FileActionPageShellProps) {
+export function FileActionPageShell({ children }: FileActionPageShellProps) {
   return (
     <Suspense
       fallback={
@@ -23,26 +23,30 @@ export function FileActionPageShell({ title, children }: FileActionPageShellProp
         </main>
       }
     >
-      <FileActionPageShellContent title={title}>{children}</FileActionPageShellContent>
+      <FileActionPageShellContent>{children}</FileActionPageShellContent>
     </Suspense>
   );
 }
 
 function FileActionPageShellContent({
-  title,
   children,
 }: FileActionPageShellProps) {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const fileId = searchParams.get("file") ?? "";
   const { file, isLoading } = useStudyFile(fileId);
+  const backHref =
+    pathname === "/dashboard/content" || !fileId
+      ? "/dashboard"
+      : `/dashboard/content?file=${encodeURIComponent(fileId)}`;
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#F7F8FC] font-[family-name:var(--font-dm-sans)] text-slate-950">
-      <header className="sticky top-0 z-50 shrink-0 border-b border-slate-200/70 bg-white/95 px-4 backdrop-blur">
+    <main className="flex min-h-screen flex-col bg-white font-[family-name:var(--font-dm-sans)] text-slate-950">
+      <header className="sticky top-0 z-50 shrink-0 bg-white/95 px-4 backdrop-blur">
         <div className="mx-auto grid h-16 max-w-[1180px] grid-cols-3 items-center">
           <Link
             className="inline-flex w-fit items-center gap-1.5 rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-200"
-            href="/dashboard"
+            href={backHref}
           >
             <ArrowLeft className="size-4" aria-hidden />
             Back
@@ -61,14 +65,9 @@ function FileActionPageShellContent({
               unoptimized
               width={32}
             />
-              <span className="hidden font-[family-name:var(--font-sora)] text-lg font-black text-slate-950 sm:inline">
-                {title}
-              </span>
-            </Link>
+          </Link>
 
-          <span className="justify-self-end text-right text-xs font-semibold text-slate-400 sm:text-sm">
-            DrNote
-          </span>
+          <span aria-hidden />
         </div>
       </header>
 

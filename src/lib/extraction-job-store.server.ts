@@ -49,6 +49,21 @@ export type ActiveExtractionJob = {
   progressPagesProcessed: number;
 };
 
+export type QueuedExtractionJobClaim =
+  | {
+      owner: true;
+      status: "queued";
+      jobId: string;
+      ownerId: string;
+    }
+  | {
+      owner: false;
+      status: "queued" | "processing" | "ready" | "failed";
+      jobId: string;
+      failureReason?: string;
+      error?: string;
+    };
+
 const JOBS_DIR = path.join(process.cwd(), ".data", "extraction-jobs");
 const EXTRACTION_RECORDS_DIR = path.join(process.cwd(), ".data", "pdf-extraction-records");
 const CONVEX_DOCUMENT_SAFE_BYTES = 800 * 1024;
@@ -298,6 +313,65 @@ export async function getActiveExtractionJobForUpload(args: {
     fileName: job.fileName,
     totalPages: job.totalPages,
     progressPagesProcessed: job.progressPagesProcessed,
+  };
+}
+
+export async function claimQueuedExtractionJobForUpload(args: {
+  extractionKey: string;
+  jobId?: string;
+  fileHash: string;
+  fileName?: string;
+  mimeType?: string;
+  extractionMode?: string;
+  extractionModel?: string;
+  clerkUserId?: string;
+  totalPages: number;
+  staleAfterMs?: number;
+  retryCooldownMs?: number;
+}): Promise<QueuedExtractionJobClaim | null> {
+  assertProductionServerStorage();
+
+  if (!isConvexStorageConfigured()) return null;
+
+  const ownerId = randomUUID();
+  const jobId = args.jobId ?? randomUUID();
+  const { ConvexHttpClient } = await import("convex/browser");
+  const { api } = await import("../../convex/_generated/api");
+  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const result = await client.mutation(
+    api.extractionStorage.claimQueuedExtractionJobForUpload,
+    {
+      secret: process.env.EXTRACTION_STORAGE_SECRET!,
+      extractionKey: args.extractionKey,
+      jobId,
+      ownerId,
+      fileHash: args.fileHash,
+      fileName: args.fileName,
+      mimeType: args.mimeType,
+      extractionMode: args.extractionMode,
+      extractionModel: args.extractionModel,
+      clerkUserId: args.clerkUserId,
+      totalPages: args.totalPages,
+      staleAfterMs: args.staleAfterMs ?? 10 * 60 * 1000,
+      retryCooldownMs: args.retryCooldownMs ?? 60 * 1000,
+    },
+  );
+
+  if (result.owner) {
+    return {
+      owner: true,
+      status: "queued",
+      jobId: result.jobId,
+      ownerId,
+    };
+  }
+
+  return {
+    owner: false,
+    status: result.status,
+    jobId: result.jobId,
+    failureReason: result.failureReason,
+    error: result.error,
   };
 }
 

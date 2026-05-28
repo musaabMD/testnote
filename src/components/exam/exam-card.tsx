@@ -101,20 +101,25 @@ export function ExamLibraryEmptyState({
   hasAvailableExams?: boolean;
 }) {
   const Icon = hasAvailableExams ? SearchX : BookOpen;
-  const title = hasAvailableExams ? "No matching exams" : "Catalogs are on the way";
+  const title = hasAvailableExams ? "No matching exams" : "Exam catalogs are coming soon";
   const description = hasAvailableExams
     ? "Try a different name, country, or category."
-    : "New exam catalogs and study files will appear here as soon as they are ready.";
+    : "We are adding exam catalogs now. When they are ready, they will appear here with study files you can save.";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-gray-50/80 px-6 py-12 text-center shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-      <div className="mx-auto grid size-14 place-items-center rounded-2xl border border-gray-200 bg-white text-gray-500 shadow-sm">
+    <div className="rounded-2xl border border-amber-200 bg-gradient-to-b from-amber-50/80 via-white to-emerald-50/60 px-6 py-12 text-center shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+      <div className="mx-auto grid size-14 place-items-center rounded-2xl border border-emerald-200 bg-white text-emerald-700 shadow-sm shadow-emerald-900/10">
         <Icon className="size-7" strokeWidth={1.8} aria-hidden />
       </div>
-      <p className="mt-5 text-base font-black tracking-tight text-gray-900">
+      {!hasAvailableExams ? (
+        <span className="mt-5 inline-flex rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-black uppercase tracking-[0.12em] text-amber-700">
+          Coming soon
+        </span>
+      ) : null}
+      <p className={`${hasAvailableExams ? "mt-5" : "mt-3"} text-base font-black tracking-tight text-slate-950`}>
         {title}
       </p>
-      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-gray-500">
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
         {description}
       </p>
     </div>

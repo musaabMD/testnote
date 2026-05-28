@@ -27,6 +27,10 @@ export type SourcePreviewGenerationReport = {
 };
 
 type StoredQuestionSource = Extract<QuestionSourcePayload, { status: "ready" }>;
+type GeneratedSourcePagePreview = SourcePagePreview & {
+  imageBytes: Buffer;
+  previewMimeType: "image/webp";
+};
 
 async function ensurePreviewDir() {
   if (!isDevelopmentStorageAllowed()) return;
@@ -113,15 +117,17 @@ async function buildPagePreview(args: {
   fileId: string;
   pageNumber: number;
   chunks: SourceChunk[];
-}): Promise<SourcePagePreview> {
+}): Promise<GeneratedSourcePagePreview> {
   const id = `${args.fileId}:page:${args.pageNumber}`;
   const svg = renderPageSvg(args.chunks, args.pageNumber);
-  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  const webp = await sharp(Buffer.from(svg)).webp({ quality: 82 }).toBuffer();
   return {
     id,
     fileId: args.fileId,
     pageNumber: args.pageNumber,
-    imageUrl: `data:image/png;base64,${png.toString("base64")}`,
+    imageUrl: `data:image/webp;base64,${webp.toString("base64")}`,
+    imageBytes: webp,
+    previewMimeType: "image/webp",
     width: DEFAULT_PAGE_WIDTH,
     height: DEFAULT_PAGE_HEIGHT,
   };
@@ -167,11 +173,48 @@ async function syncQuestionSourceToConvex(payload: StoredQuestionSource): Promis
     sourcePagePreviewId: payload.sourcePagePreviewId,
     pageNumber: payload.pageNumber,
     imageUrl: payload.imageUrl,
+    previewMimeType: payload.previewMimeType,
+    previewR2Key: payload.previewR2Key,
     width: payload.width,
     height: payload.height,
     sourceRegion: payload.sourceRegion,
     highlightConfirmed: payload.highlightConfirmed,
   });
+}
+
+function bufferToExactArrayBuffer(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
+}
+
+function asPreviewMimeType(value: unknown): SourcePagePreview["previewMimeType"] {
+  return value === "image/png" || value === "image/jpeg" || value === "image/webp"
+    ? value
+    : undefined;
+}
+
+async function storePreviewImageInConvex(
+  preview: GeneratedSourcePagePreview,
+): Promise<Pick<SourcePagePreview, "imageUrl" | "previewR2Key"> | null> {
+  if (!isConvexStorageConfigured()) return null;
+
+  const { ConvexHttpClient } = await import("convex/browser");
+  const { api } = await import("../../convex/_generated/api");
+  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const stored = await client.action(api.extractionStorage.storeQuestionSourcePreview, {
+    secret: process.env.EXTRACTION_STORAGE_SECRET!,
+    fileId: preview.fileId,
+    sourcePagePreviewId: preview.id,
+    pageNumber: preview.pageNumber,
+    imageBytes: bufferToExactArrayBuffer(preview.imageBytes),
+  });
+
+  return {
+    imageUrl: stored.url ?? preview.imageUrl,
+    previewR2Key: stored.r2Key,
+  };
 }
 
 async function writeLocalQuestionSource(payload: StoredQuestionSource): Promise<void> {
@@ -185,6 +228,8 @@ async function writeLocalQuestionSource(payload: StoredQuestionSource): Promise<
       fileId: payload.fileId,
       pageNumber: payload.pageNumber,
       imageUrl: payload.imageUrl,
+      previewMimeType: payload.previewMimeType,
+      previewR2Key: payload.previewR2Key,
       width: payload.width,
       height: payload.height,
     } satisfies SourcePagePreview),
@@ -210,7 +255,13 @@ export async function getQuestionSourcePayload(
         secret: process.env.EXTRACTION_STORAGE_SECRET!,
         questionId,
       });
-      if (row) return { status: "ready", ...row };
+      if (row) {
+        return {
+          status: "ready",
+          ...row,
+          previewMimeType: asPreviewMimeType(row.previewMimeType),
+        };
+      }
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.warn("[source-preview] Convex source lookup failed:", error);
@@ -248,7 +299,12 @@ export async function getServerSourcePagePreview(
         fileId,
         pageNumber,
       });
-      if (row?.imageUrl) return row;
+      if (row?.imageUrl) {
+        return {
+          ...row,
+          previewMimeType: asPreviewMimeType(row.previewMimeType),
+        };
+      }
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.warn("[source-preview] Convex page preview lookup failed:", error);
@@ -273,7 +329,11 @@ export async function attachServerSourcePreviews(args: {
   sourceChunks: SourceChunk[];
   fileId: string;
 }): Promise<{ result: PdfMcqResult; report: SourcePreviewGenerationReport }> {
-  const previewsByPage = new Map<number, SourcePagePreview>();
+  const previewsByPage = new Map<number, GeneratedSourcePagePreview>();
+  const storedPreviewsByPage = new Map<
+    number,
+    Pick<SourcePagePreview, "imageUrl" | "previewR2Key">
+  >();
   let generatedPreviews = 0;
   let previewFailures = 0;
 
@@ -313,6 +373,21 @@ export async function attachServerSourcePreviews(args: {
         generatedPreviews += 1;
       }
 
+      let storedPreview = storedPreviewsByPage.get(pageNumber);
+      if (!storedPreview) {
+        storedPreview =
+          (await storePreviewImageInConvex(preview).catch((error) => {
+            if (process.env.NODE_ENV === "development") {
+              console.warn("[source-preview] R2 preview storage failed:", error);
+            }
+            return null;
+          })) ?? {
+            imageUrl: preview.imageUrl,
+            previewR2Key: undefined,
+          };
+        storedPreviewsByPage.set(pageNumber, storedPreview);
+      }
+
       const highlightConfirmed = validateSourceRegionForImage(
         sourceRegion,
         preview.width,
@@ -325,7 +400,9 @@ export async function attachServerSourcePreviews(args: {
         fileId: args.fileId,
         sourcePagePreviewId: preview.id,
         pageNumber,
-        imageUrl: preview.imageUrl,
+        imageUrl: storedPreview.imageUrl,
+        previewMimeType: preview.previewMimeType,
+        previewR2Key: storedPreview.previewR2Key,
         width: preview.width,
         height: preview.height,
         sourceRegion,
@@ -338,7 +415,7 @@ export async function attachServerSourcePreviews(args: {
       nextMcqs.push({
         ...question,
         questionId,
-        sourcePageImageUrl: preview.imageUrl,
+        sourcePageImageUrl: storedPreview.imageUrl,
         sourcePagePreviewId: preview.id,
         sourcePageWidth: preview.width,
         sourcePageHeight: preview.height,

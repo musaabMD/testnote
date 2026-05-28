@@ -13,7 +13,9 @@ const clerkProxy = clerkEnabled
   ? clerkMiddleware(async (auth, req) => {
       if (isCronWorkerRoute(req)) return;
       if (isProtectedRoute(req)) {
-        await auth.protect();
+        await auth.protect({
+          unauthenticatedUrl: new URL("/pricing", req.url).toString(),
+        });
       }
     })
   : null;

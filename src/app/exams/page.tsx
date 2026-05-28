@@ -60,6 +60,7 @@ export default function ExamsPage() {
   }
 
   const availableCount = exams?.length ?? 0;
+  const catalogsComingSoon = !isLoading && availableCount === 0;
 
   return (
     <main className="min-h-screen bg-white text-slate-950">
@@ -67,13 +68,18 @@ export default function ExamsPage() {
 
       <section className="mx-auto max-w-3xl px-4 py-16">
         <div className="text-center">
-          <h1 className="mb-3 text-5xl font-black tracking-tight text-gray-900">
+          {catalogsComingSoon ? (
+            <span className="mb-4 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-amber-700">
+              Coming soon
+            </span>
+          ) : null}
+          <h1 className="mb-3 text-5xl font-black tracking-tight text-slate-950">
             Exams
           </h1>
-          <p className="text-base text-gray-400">
+          <p className="text-base font-medium text-slate-600">
             Browse exam catalogs, save exams to this browser, and upload study files.
           </p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-gray-400">
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
             Adding an exam to your catalog library is anonymous and local. Sign in only
             when you want dashboard uploads and account-backed study files.
           </p>
@@ -81,11 +87,11 @@ export default function ExamsPage() {
 
         <div className="relative mb-6 mt-10">
           <Search
-            className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+            className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-slate-400"
             aria-hidden
           />
           <input
-            className="w-full rounded-2xl border-2 border-gray-300 bg-white py-3.5 pl-11 pr-4 text-sm text-gray-700 transition-all placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+            className="w-full rounded-2xl border-2 border-slate-200 bg-white py-3.5 pl-11 pr-4 text-sm font-medium text-slate-700 shadow-sm shadow-slate-950/[0.03] transition-all placeholder:text-slate-400 focus:border-emerald-400 focus:outline-none"
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search exams by name, country, or category..."
             type="text"
@@ -94,7 +100,7 @@ export default function ExamsPage() {
           {searchQuery ? (
             <button
               aria-label="Clear search"
-              className="absolute right-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
+              className="absolute right-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               onClick={() => setSearchQuery("")}
               type="button"
             >
@@ -130,8 +136,8 @@ export default function ExamsPage() {
         ) : null}
 
         {isLoading ? (
-          <div className="rounded-2xl border border-gray-200 bg-gray-100 p-10 text-center">
-            <p className="text-sm font-semibold text-gray-400">Loading exams…</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-10 text-center">
+            <p className="text-sm font-semibold text-slate-500">Loading exams...</p>
           </div>
         ) : filteredExams.length ? (
           <div className="flex flex-col gap-3">
@@ -167,8 +173,8 @@ function CategoryChip({
     <button
       className={`rounded-full px-4 py-2 text-xs font-bold transition ${
         active
-          ? "bg-gray-900 text-white"
-          : "border border-gray-200 bg-gray-100 text-gray-600 hover:border-gray-300 hover:bg-gray-200/70 hover:text-gray-900"
+          ? "bg-slate-950 text-white shadow-sm shadow-slate-950/15"
+          : "border border-slate-200 bg-white text-slate-600 shadow-sm shadow-slate-950/[0.03] hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
       }`}
       onClick={onClick}
       type="button"

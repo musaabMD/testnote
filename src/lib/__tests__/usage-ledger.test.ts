@@ -114,6 +114,16 @@ describe("quota exceeded avoids OpenRouter", () => {
     assert.match(src, /allowed: false, reason: result\.reason/);
   });
 
+  it("emits monthly AI budget warnings at 75% and 90%", () => {
+    const src = readFileSync(path.join(convexDir, "usageLedger.ts"), "utf8");
+    assert.match(src, /budgetWarningThreshold/);
+    assert.match(src, /currentBudgetRatio < 0\.9 && projectedBudgetRatio >= 0\.9/);
+    assert.match(src, /currentBudgetRatio < 0\.75 && projectedBudgetRatio >= 0\.75/);
+    assert.match(src, /budget_warning_90/);
+    assert.match(src, /budget_warning_75/);
+    assert.match(src, /Monthly AI budget is at least \$\{budgetWarningThreshold\}% used/);
+  });
+
   it("admin preflight bypasses quota checks before plan limits", () => {
     const src = readFileSync(path.join(convexDir, "usageLedger.ts"), "utf8");
     const adminBypass = src.indexOf("if (admin)");

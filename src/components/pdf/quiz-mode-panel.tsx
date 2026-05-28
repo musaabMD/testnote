@@ -71,6 +71,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 function getRawOptions(question: PdfMcq) {
@@ -124,6 +125,7 @@ export function QuizModePanel({
   onToggleBookmark,
   onRecordAnswer,
   onShowQuestionSource,
+  returnHref = "/dashboard",
 }: {
   file: PdfFileQueueItem;
   questions: PdfMcq[];
@@ -133,10 +135,14 @@ export function QuizModePanel({
   onToggleBookmark: (questionId: string) => void;
   onRecordAnswer: (questionId: string, answer: QuestionAnswer) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
+  returnHref?: string;
 }) {
+  const searchParams = useSearchParams();
   const [index, setIndex] = useState(() => loadQuizProgress(file.id)?.index ?? 0);
   const [finished, setFinished] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(
+    () => searchParams.get("customize") === "1",
+  );
   const [settings, setSettings] = useState<PdfQuizSettings>(loadPdfQuizSettings);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [submitPromptOpen, setSubmitPromptOpen] = useState(false);
@@ -176,6 +182,7 @@ export function QuizModePanel({
   }, [file.id, finished, effectiveIndex, validQuestions.length]);
 
   const question = validQuestions[effectiveIndex];
+
   const displayIndex = question ? resolveQuestionIndex(questions, question) : effectiveIndex;
   const questionId = question ? getQuestionId(file, question, displayIndex) : "";
   const edit = questionId ? questionEdits[questionId] : undefined;
@@ -741,9 +748,9 @@ export function QuizModePanel({
           </button>
           <Link
             className="flex h-14 items-center justify-center rounded-2xl bg-slate-100 text-base font-bold text-slate-700"
-            href="/dashboard"
+            href={returnHref}
           >
-            Back to library
+            Back to file details
           </Link>
         </div>
       </div>
@@ -882,7 +889,7 @@ export function QuizModePanel({
               if (!answerState && !showFeedback) {
                 cls += picked
                   ? "border-zinc-950 bg-slate-50 text-slate-900"
-                  : "border-slate-200 bg-white text-slate-800 hover:border-slate-300";
+                  : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/70";
               } else if (picked && answerState?.isCorrect) {
                 cls += "border-green-400 bg-green-50 text-green-900";
               } else if (picked && answerState && !answerState.isCorrect) {
@@ -893,20 +900,25 @@ export function QuizModePanel({
                 cls += "border-slate-100 bg-slate-50 text-slate-400";
               }
 
-              return (
-                <div key={`${option.label}-${option.text}`} className={cls}>
-                  <span
-                    className={`flex items-center gap-3 ${isRtl ? "flex-row-reverse" : ""}`}
-                  >
-                    <button
-                      className="grid size-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold"
-                      disabled={Boolean(answerState)}
-                      onClick={() => selectOption(option)}
-                      type="button"
+              if (settings.allowEdit && !showOriginal) {
+                return (
+                  <div key={`${option.label}-${option.text}`} className={cls}>
+                    <span
+                      className={`flex items-center gap-3 ${isRtl ? "flex-row-reverse" : ""}`}
                     >
-                      {getDisplayOptionLabel(option.label, optionIndex, isRtl)}
-                    </button>
-                    {settings.allowEdit && !showOriginal ? (
+                      <button
+                        aria-label={`Select option ${getDisplayOptionLabel(
+                          option.label,
+                          optionIndex,
+                          isRtl,
+                        )}`}
+                        className="grid size-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold transition hover:bg-slate-200 disabled:opacity-60"
+                        disabled={Boolean(answerState)}
+                        onClick={() => selectOption(option)}
+                        type="button"
+                      >
+                        {getDisplayOptionLabel(option.label, optionIndex, isRtl)}
+                      </button>
                       <input
                         className={`min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-medium outline-none focus:border-slate-300 ${
                           isRtl ? "text-right" : "text-left"
@@ -921,18 +933,33 @@ export function QuizModePanel({
                         }}
                         value={option.text}
                       />
-                    ) : (
-                      <button
-                        className={`flex-1 ${isRtl ? "text-right" : "text-left"}`}
-                        disabled={Boolean(answerState)}
-                        onClick={() => selectOption(option)}
-                        type="button"
-                      >
-                        {option.text}
-                      </button>
-                    )}
+                    </span>
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={`${option.label}-${option.text}`}
+                  aria-pressed={picked}
+                  className={`${cls} cursor-pointer disabled:cursor-default`}
+                  disabled={Boolean(answerState)}
+                  onClick={() => selectOption(option)}
+                  type="button"
+                >
+                  <span
+                    className={`flex items-center gap-3 ${isRtl ? "flex-row-reverse" : ""}`}
+                  >
+                    <span
+                      className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-bold transition ${
+                        picked ? "bg-zinc-950 text-white" : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {getDisplayOptionLabel(option.label, optionIndex, isRtl)}
+                    </span>
+                    <span className="min-w-0 flex-1">{option.text}</span>
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>

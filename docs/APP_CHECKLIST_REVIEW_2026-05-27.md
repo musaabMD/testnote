@@ -101,7 +101,7 @@ Current state: the app is suitable for staging/demo validation, but paid product
 [ ] Verify deployed max pages per file limit.
 [ ] Verify deployed max file size limit.
 [x] Move extraction to a durable background worker path. Current code persists source first, queues a Convex job, triggers the secured worker, Convex Cron is configured, and the production worker endpoint is live.
-[ ] Add R2/webp durable storage for source page preview images.
+[x] Add R2/webp durable storage for source page preview images.
 [ ] Verify Summary mode with real uploaded files.
 [ ] Verify Download/export for questions, notes, and study material.
 [ ] Verify Library organization and Sessions history across sessions/devices.

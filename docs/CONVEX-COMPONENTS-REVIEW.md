@@ -41,7 +41,7 @@
 
 **Why:** Not installed. Would be Option 2 for background jobs if Trigger.dev is delayed.
 
-**What it replaces:** Sync `/api/pdf/mcqs` + manual job records.
+**What it replaces:** Current `/api/pdf/mcqs/worker` route + Convex cron recovery if a managed queue becomes necessary.
 
 **Risk:** Running Workpool + Trigger.dev later = duplicate orchestrators.
 
@@ -79,29 +79,29 @@
 
 ## RAG
 
-**Use now?** no
+**Use now?** yes
 
-**Why:** Ask mode still sends first 24 questions (`buildFileAskInstructions`).
+**Why:** Ask mode ranks local source chunks and calls `convex/studyRag.ts` when indexed chunks are available.
 
 **What it replaces:** Truncated Ask context.
 
-**Risk:** Poor answers + higher token cost on large files.
+**Risk:** Poor answers + higher token cost on sparse or poorly indexed files.
 
-**Decision:** **Backlog B-06.** Use `convex/studyRag.ts` when implementing chunk retrieval for Ask.
+**Decision:** **Partial/done B-06.** Keep real uploaded-file grounding QA open and tune retrieval quality before broad beta.
 
 ---
 
 ## Cloudflare R2
 
-**Use now?** yes, for original source files
+**Use now?** yes, for original source files and source preview WebP images
 
-**Why:** `convex/r2.ts` is registered and source-file persistence now stores R2 keys in `sourceFiles`; client-side source backup uses Convex R2 signed URLs and server-side source backup stores via `r2.store`.
+**Why:** `convex/r2.ts` is registered. Source-file persistence stores R2 keys in `sourceFiles`, and generated source page previews store WebP keys in `questionSources`.
 
-**What it replaces:** Convex `_storage` for new source-file originals. Browser IndexedDB remains an optional local/offline cache.
+**What it replaces:** Convex `_storage` for new source-file originals and large base64-only preview persistence. Browser IndexedDB remains an optional local/offline cache.
 
 **Risk:** Requires deployed Convex `R2_*` environment variables and real-upload QA before relying on it in production.
 
-**Decision:** **B-02 partially complete.** Originals are wired to R2; source preview image/WebP storage is still B-07.
+**Decision:** **B-02/B-07 partially complete.** Originals and generated source preview WebP images are wired to R2; converted PDFs remain future work only if new file formats require them.
 
 ---
 
@@ -166,11 +166,11 @@ Do not let Clerk Billing or OpenRouter decide app spend eligibility. Convex pref
 |-----------|---------|--------|----------|
 | Rate Limiter | Yes | Yes | Local API buckets |
 | Action Cache | No | Maybe | Custom fileHash cache |
-| Workpool | No | If no Trigger.dev | Sync API |
+| Workpool | No | If no Trigger.dev | Current worker route |
 | Workflow | Stub only | No (prefer Trigger.dev) | — |
 | Action Retrier | No | Maybe | Manual retries |
-| RAG | No | Yes (Ask) | First-24 context |
-| R2 | No | Yes | IndexedDB |
+| RAG | Yes | Yes (Ask) | First-24 context |
+| R2 | Partial | Yes | IndexedDB for source originals |
 | Clerk Billing | Yes | Yes | Manual plans |
 | PostHog | Optional | Optional | — |
 | Aggregate/Sharded Counter | No | Maybe | Usage total queries |

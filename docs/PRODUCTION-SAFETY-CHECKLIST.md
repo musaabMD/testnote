@@ -46,17 +46,17 @@ Eligible only when all items below are green:
 [ ] Same file uploaded repeatedly after success returns cache/in-flight signals.
 [ ] Source modal does not hang, crash, or loop 404s.
 [ ] Internal cost report can identify cost by user, feature, model, file, cache hit rate, duplicate charged files, quota failures, source failures, and low-margin users.
-[ ] Full typecheck passes.
-[ ] Full production build passes.
+[x] Full typecheck passes.
+[x] Full production build passes.
 ```
 
 ## After Private Beta Starts
 
 ```txt
-[ ] R2 durable source previews/files.
-[ ] Background extraction with Trigger.dev or Convex Workflow/Workpool.
-[ ] Non-blocking upload job status.
-[ ] Ask retrieval over chunks.
-[ ] DOCX/PPTX conversion or explicit rejection.
-[ ] Admin dashboard.
+[~] R2 durable source files are wired; R2/WebP source previews still need implementation.
+[~] Background extraction uses the worker route + Convex cron recovery; managed Trigger.dev/Workflow replacement remains optional after staging data.
+[x] Non-blocking upload job status.
+[~] Ask retrieval over chunks is wired; real uploaded-file grounding QA remains.
+[x] DOCX/PPTX conversion or explicit rejection.
+[x] Internal admin dashboard/reporting.
 ```

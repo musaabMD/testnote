@@ -153,7 +153,13 @@ export const STUDY_MODE_TABS: Array<{
   },
 ];
 
-export type FileToolMode = "download" | "library" | "add-subject" | "analysis" | "sessions";
+export type FileToolMode =
+  | "download"
+  | "library"
+  | "add-subject"
+  | "analysis"
+  | "sessions"
+  | "mind-map";
 
 export const FILE_TOOL_TABS: Array<{
   id: FileToolMode;
@@ -203,6 +209,14 @@ export const FILE_TOOL_TABS: Array<{
     iconColor: "#7C3AED",
     border: "#DDD6FE",
   },
+  {
+    id: "mind-map",
+    label: "Mind Map",
+    icon: ScanSearch,
+    bg: "#F0FDF4",
+    iconColor: "#15803D",
+    border: "#BBF7D0",
+  },
 ];
 
 export type QuestionAnswer = {
@@ -225,7 +239,56 @@ export function StudyModePicker({
   fileId: string;
   preview?: boolean;
 }) {
+  function studyActionHref(mode: StudyMode, params?: Record<string, string>) {
+    const search = new URLSearchParams({
+      file: fileId,
+      mode,
+      ...(params ?? {}),
+    });
+    return `/dashboard/content/study?${search.toString()}`;
+  }
+
   const allTabs = [
+    {
+      id: "customize-quiz" as const,
+      label: "Customize Quiz",
+      icon: SlidersHorizontal,
+      bg: "bg-sky-50",
+      border: "border-sky-200",
+      text: "text-sky-700",
+      iconBg: "bg-sky-100",
+      href: studyActionHref("quiz", { customize: "1" }),
+    },
+    {
+      id: "quick-10" as const,
+      label: "Quick 10",
+      icon: Play,
+      bg: "bg-cyan-50",
+      border: "border-cyan-200",
+      text: "text-cyan-700",
+      iconBg: "bg-cyan-100",
+      href: studyActionHref("quiz", { preset: "quick-10" }),
+    },
+    {
+      id: "timed" as const,
+      label: "Timed",
+      icon: Clock,
+      bg: "bg-amber-50",
+      border: "border-amber-200",
+      text: "text-amber-700",
+      iconBg: "bg-amber-100",
+      href: studyActionHref("exam", { preset: "timed" }),
+    },
+    {
+      id: "customize-flashcards" as const,
+      label: "Customize Flashcards",
+      icon: SlidersHorizontal,
+      bg: "bg-violet-50",
+      border: "border-violet-200",
+      text: "text-violet-700",
+      iconBg: "bg-violet-100",
+      href: studyActionHref("flashcards", { customize: "1" }),
+    },
     {
       id: "flashcards" as const,
       label: "Flashcards",
@@ -234,37 +297,47 @@ export function StudyModePicker({
       border: "border-violet-200",
       text: "text-violet-700",
       iconBg: "bg-violet-100",
-      href: studyModeHref(fileId, "flashcards"),
+      href: studyActionHref("flashcards"),
     },
     {
-      id: "quiz" as const,
-      label: "Quiz",
-      icon: CheckSquare,
-      bg: "bg-sky-50",
-      border: "border-sky-200",
-      text: "text-sky-700",
-      iconBg: "bg-sky-100",
-      href: studyModeHref(fileId, "quiz"),
-    },
-    {
-      id: "review" as const,
-      label: "Review",
-      icon: BookMarked,
+      id: "review-all" as const,
+      label: "Review All",
+      icon: List,
       bg: "bg-emerald-50",
       border: "border-emerald-200",
       text: "text-emerald-700",
       iconBg: "bg-emerald-100",
-      href: studyModeHref(fileId, "review"),
+      href: studyActionHref("review", { filter: "all" }),
     },
     {
-      id: "exam" as const,
-      label: "Exam",
-      icon: Clock,
-      bg: "bg-amber-50",
-      border: "border-amber-200",
-      text: "text-amber-700",
-      iconBg: "bg-amber-100",
-      href: studyModeHref(fileId, "exam"),
+      id: "review-incorrect" as const,
+      label: "Review Incorrect",
+      icon: XCircle,
+      bg: "bg-red-50",
+      border: "border-red-200",
+      text: "text-red-700",
+      iconBg: "bg-red-100",
+      href: studyActionHref("review", { filter: "incorrect" }),
+    },
+    {
+      id: "review-flagged" as const,
+      label: "Review Flagged",
+      icon: Flag,
+      bg: "bg-orange-50",
+      border: "border-orange-200",
+      text: "text-orange-700",
+      iconBg: "bg-orange-100",
+      href: studyActionHref("review", { filter: "flagged" }),
+    },
+    {
+      id: "extract-mcqs" as const,
+      label: "Extract MCQs",
+      icon: CheckSquare,
+      bg: "bg-blue-50",
+      border: "border-blue-200",
+      text: "text-blue-700",
+      iconBg: "bg-blue-100",
+      href: studyActionHref("quiz", { extract: "mcqs" }),
     },
     {
       id: "summary" as const,
@@ -285,6 +358,16 @@ export function StudyModePicker({
       text: "text-rose-700",
       iconBg: "bg-rose-100",
       href: studyModeHref(fileId, "ask"),
+    },
+    {
+      id: "mind-map" as const,
+      label: "Mind Map",
+      icon: ScanSearch,
+      bg: "bg-lime-50",
+      border: "border-lime-200",
+      text: "text-lime-700",
+      iconBg: "bg-lime-100",
+      href: fileToolHref(fileId, "mind-map"),
     },
     {
       id: "download" as const,
@@ -329,15 +412,15 @@ export function StudyModePicker({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 min-[480px]:grid-cols-3 md:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2 min-[480px]:grid-cols-3 md:grid-cols-4">
       {allTabs.map((tab) => {
         const Icon = tab.icon;
         const className = preview
-          ? "flex flex-col items-center gap-2 rounded-xl border-2 border-gray-200 bg-gray-50 px-2 py-3 text-xs font-semibold text-gray-400 opacity-70"
-          : `flex flex-col items-center gap-2 rounded-xl border-2 px-2 py-3 text-xs font-semibold transition-all hover:brightness-95 ${tab.bg} ${tab.border} ${tab.text}`;
+          ? "relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-[18px] border-2 border-[#e5e5e5] bg-white px-2 py-3 text-xs font-semibold text-gray-400 opacity-70 shadow-[0_3px_0_#e5e5e5]"
+          : `relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-[18px] border-2 border-[#e5e5e5] border-b-4 border-b-[#d6d6d6] bg-white px-2 py-3 text-center text-xs font-black transition-all hover:-translate-y-0.5 hover:border-[#d4d4d4] hover:bg-[#fbfbfb] hover:shadow-sm active:translate-y-0 ${tab.text}`;
         const iconWrapClass = preview
-          ? "flex size-8 items-center justify-center rounded-lg bg-gray-100 text-gray-400"
-          : `flex size-8 items-center justify-center rounded-lg ${tab.iconBg}`;
+          ? "flex size-8 items-center justify-center rounded-xl bg-gray-100 text-gray-400"
+          : `flex size-8 items-center justify-center rounded-xl ${tab.iconBg}`;
 
         if (preview) {
           return (
@@ -355,7 +438,7 @@ export function StudyModePicker({
             <div className={iconWrapClass}>
               <Icon className="size-4" aria-hidden />
             </div>
-            {tab.label}
+            <span className="max-w-full text-balance leading-tight">{tab.label}</span>
           </Link>
         );
       })}
@@ -374,6 +457,7 @@ type PdfStudyPanelProps = {
   onExplain?: (question: PdfMcq) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
   layout?: "embedded" | "full";
+  returnHref?: string;
 };
 
 export function PdfStudyPanel({
@@ -387,6 +471,7 @@ export function PdfStudyPanel({
   onExplain = () => {},
   onShowQuestionSource,
   layout = "embedded",
+  returnHref = "/dashboard",
 }: PdfStudyPanelProps) {
   const questions = file.result.mcqs;
   const isFull = layout === "full";
@@ -408,6 +493,7 @@ export function PdfStudyPanel({
             file={file}
             onRecordAnswer={onRecordAnswer}
             questions={questions}
+            returnHref={returnHref}
           />
         ) : mode === "quiz" ? (
           <QuizModePanel
@@ -420,6 +506,7 @@ export function PdfStudyPanel({
             onToggleBookmark={onToggleBookmark}
             questionAnswers={questionAnswers}
             questions={questions}
+            returnHref={returnHref}
           />
         ) : mode === "review" ? (
           <InlineReviewMode
@@ -439,6 +526,7 @@ export function PdfStudyPanel({
             onExplain={onExplain}
             onShowQuestionSource={onShowQuestionSource}
             questions={questions}
+            returnHref={returnHref}
           />
         ) : mode === "summary" ? (
           <SummaryInline
@@ -553,6 +641,7 @@ function InlineQuizMode({
   onExplain,
   onShowQuestionSource,
   fullPage = false,
+  returnHref = "/dashboard",
 }: {
   file: PdfFileQueueItem;
   questions: PdfMcq[];
@@ -563,6 +652,7 @@ function InlineQuizMode({
   onExplain: (question: PdfMcq) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
   fullPage?: boolean;
+  returnHref?: string;
 }) {
   const [index, setIndex] = useState(0);
   const [finished, setFinished] = useState(false);
@@ -687,6 +777,7 @@ function InlineQuizMode({
 
     return (
       <ScoreScreen
+        backHref={returnHref}
         correct={correct}
         total={total}
         onRetry={() => {
@@ -921,10 +1012,12 @@ function InlineQuizMode({
 /* ── Score Screen ─────────────────────────────────────────────── */
 
 function ScoreScreen({
+  backHref,
   correct,
   total,
   onRetry,
 }: {
+  backHref: string;
   correct: number;
   total: number;
   onRetry: () => void;
@@ -972,9 +1065,9 @@ function ScoreScreen({
         </button>
         <Link
           className="flex h-14 items-center justify-center rounded-2xl bg-slate-100 text-base font-bold text-slate-700 transition hover:bg-slate-200"
-          href="/dashboard"
+          href={backHref}
         >
-          Back to library
+          Back to file details
         </Link>
       </div>
     </div>
@@ -986,6 +1079,18 @@ function ScoreScreen({
 type ReviewFilter = "all" | "flagged" | "incorrect" | "correct";
 
 const REVIEW_PER_PAGE = 5;
+
+function parseReviewFilter(value: string | null): ReviewFilter | null {
+  if (
+    value === "all" ||
+    value === "flagged" ||
+    value === "incorrect" ||
+    value === "correct"
+  ) {
+    return value;
+  }
+  return null;
+}
 
 const REVIEW_STAT_CONFIGS: Array<{
   key: ReviewFilter;
@@ -1313,11 +1418,14 @@ function InlineReviewMode({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [filter, setFilter] = useState<ReviewFilter | null>(null);
+  const initialFilter = parseReviewFilter(searchParams.get("filter"));
+  const [filter, setFilter] = useState<ReviewFilter | null>(initialFilter);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [embeddedDetailIdx, setEmbeddedDetailIdx] = useState<number | null>(null);
   const sessionChrome = useStudySessionChromeOptional();
+  const urlFilter = fullPage ? parseReviewFilter(searchParams.get("filter")) : null;
+  const activeFilter = urlFilter ?? filter;
 
   const urlDetailIdx = useMemo(() => {
     if (!fullPage) return null;
@@ -1375,9 +1483,9 @@ function InlineReviewMode({
         const answer = questionAnswers[id];
         const bookmarked = bookmarkedQuestionIds.has(id);
 
-        if (filter === "flagged" && !bookmarked) return false;
-        if (filter === "incorrect" && (!answer || answer.isCorrect)) return false;
-        if (filter === "correct" && (!answer || !answer.isCorrect)) return false;
+        if (activeFilter === "flagged" && !bookmarked) return false;
+        if (activeFilter === "incorrect" && (!answer || answer.isCorrect)) return false;
+        if (activeFilter === "correct" && (!answer || !answer.isCorrect)) return false;
 
         if (!normalized) return true;
         const questionText = getQuestionText(question).toLowerCase();
@@ -1387,7 +1495,7 @@ function InlineReviewMode({
           pageTag.includes(normalized)
         );
       });
-  }, [bookmarkedQuestionIds, file, filter, questionAnswers, questions, search]);
+  }, [activeFilter, bookmarkedQuestionIds, file, questionAnswers, questions, search]);
 
   const safeEmbeddedDetailIdx =
     embeddedDetailIdx !== null && embeddedDetailIdx < filtered.length ? embeddedDetailIdx : null;
@@ -1511,7 +1619,7 @@ function InlineReviewMode({
           <div className="mb-3 grid grid-cols-2 gap-2 min-[480px]:grid-cols-4">
             {statConfigs.map((stat) => {
               const Icon = stat.icon;
-              const active = filter === stat.key;
+              const active = activeFilter === stat.key;
               return (
                 <button
                   key={stat.key}
@@ -2010,12 +2118,14 @@ function FlashcardsInline({
   onExplain,
   onShowQuestionSource,
   fullPage = false,
+  returnHref = "/dashboard",
 }: {
   file: PdfFileQueueItem;
   questions: PdfMcq[];
   onExplain: (question: PdfMcq) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
   fullPage?: boolean;
+  returnHref?: string;
 }) {
   const [phase, setPhase] = useState<FlashcardPhase>("list");
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
@@ -2430,9 +2540,9 @@ function FlashcardsInline({
           </button>
           <Link
             className="flex h-14 items-center justify-center rounded-2xl bg-slate-100 text-base font-bold text-slate-700 transition hover:bg-slate-200"
-            href="/dashboard"
+            href={returnHref}
           >
-            Back to library
+            Back to file details
           </Link>
         </div>
       </div>

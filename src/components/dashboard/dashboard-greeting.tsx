@@ -26,37 +26,41 @@ export function DashboardGreeting({ userName }: DashboardGreetingProps) {
   }, []);
 
   return (
-    <section className="mb-8 text-center">
-      <p
-        aria-hidden
-        className="m-0 text-4xl leading-none sm:text-5xl"
-        suppressHydrationWarning
-      >
-        {greeting.emoji}
-      </p>
-      <h2
-        className="m-0 mt-2 text-[28px] font-black tracking-tight text-slate-900 sm:text-[32px]"
-        suppressHydrationWarning
-      >
-        {greeting.salutation}, {userName}!
-      </h2>
-      <blockquote className="mx-auto mt-5 max-w-xl rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-center sm:max-w-2xl sm:px-6 sm:py-5">
-        {quote ? (
-          <>
-            <p className="text-base font-medium leading-relaxed text-blue-900 sm:text-lg">
-              &ldquo;{quote.text}&rdquo;
-            </p>
-            <footer className="mt-2 text-sm font-semibold text-blue-700 sm:text-[15px]">
-              — {quote.author}
-            </footer>
-          </>
-        ) : (
-          <div aria-hidden className="py-1">
-            <div className="mx-auto h-5 w-4/5 rounded bg-blue-100/80" />
-            <div className="mx-auto mt-3 h-4 w-1/3 rounded bg-blue-100/60" />
-          </div>
-        )}
-      </blockquote>
+    <section className="rounded-[28px] border-2 border-[#e5e5e5] bg-white px-4 py-5 text-center shadow-[0_5px_0_#e5e5e5] sm:px-6">
+      <div className="grid justify-items-center gap-3">
+        <div className="flex min-w-0 flex-col items-center gap-2 sm:flex-row sm:gap-3">
+          <span
+            aria-hidden
+            className="grid size-11 shrink-0 place-items-center rounded-2xl border-2 border-[#e5e7eb] bg-[#f8fafc] text-2xl shadow-[0_3px_0_#d1d5db]"
+            suppressHydrationWarning
+          >
+            {greeting.emoji}
+          </span>
+          <h2
+            className="m-0 truncate text-[21px] font-black text-[#263238] sm:text-[24px]"
+            suppressHydrationWarning
+          >
+            {greeting.salutation}, {userName}!
+          </h2>
+        </div>
+        <blockquote className="min-w-0 max-w-[680px] px-2">
+          {quote ? (
+            <>
+              <p className="text-sm font-black leading-6 text-[#4b4b4b] sm:text-[15px]">
+                &ldquo;{quote.text}&rdquo;
+              </p>
+              <footer className="mt-1 text-xs font-black text-[#4b5563] sm:text-[13px]">
+                - {quote.author}
+              </footer>
+            </>
+          ) : (
+            <div aria-hidden className="grid justify-items-center py-1">
+              <div className="h-3 w-72 max-w-full rounded bg-[#e5e5e5]" />
+              <div className="mt-1.5 h-2.5 w-24 rounded bg-[#e5e5e5]" />
+            </div>
+          )}
+        </blockquote>
+      </div>
     </section>
   );
 }

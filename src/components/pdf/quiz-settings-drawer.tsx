@@ -20,17 +20,22 @@ export function QuizSettingsDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex justify-end bg-slate-950/25"
+      className="fixed inset-0 z-[120] flex justify-end bg-slate-950/35 backdrop-blur-[1px]"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-base font-black text-slate-950">Quiz Settings</h2>
+      <aside className="flex h-full w-full max-w-[28rem] flex-col border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              Study mode
+            </p>
+            <h2 className="mt-1 text-lg font-black text-slate-950">Quiz Settings</h2>
+          </div>
           <button
             aria-label="Close settings"
-            className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-50"
+            className="grid size-9 place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
             onClick={onClose}
             type="button"
           >
@@ -38,11 +43,7 @@ export function QuizSettingsDrawer({
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <p className="mb-4 text-sm text-slate-500">
-            Default settings for quiz and exam modes.
-          </p>
-
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
           <SettingsGroup title="Answer display">
             {[
               ["asIGo", "Show answers as I go"],
@@ -105,9 +106,16 @@ export function QuizSettingsDrawer({
           </SettingsGroup>
         </div>
 
-        <div className="border-t border-slate-100 p-5">
+        <div className="grid grid-cols-[0.42fr_1fr] gap-3 border-t border-slate-100 bg-white px-6 py-5">
           <button
-            className="h-11 w-full rounded-full bg-zinc-950 text-sm font-bold text-white"
+            className="h-11 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="h-11 rounded-lg bg-zinc-950 text-sm font-bold text-white shadow-lg shadow-slate-950/10 transition hover:bg-zinc-800"
             onClick={() => {
               onSave(local);
               onClose();
@@ -130,12 +138,14 @@ function SettingsGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-5">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-400">
+    <section>
+      <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
         {title}
       </p>
-      <div className="overflow-hidden rounded-2xl border border-slate-200">{children}</div>
-    </div>
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-950/[0.03]">
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -150,14 +160,25 @@ function SettingsRow({
 }) {
   return (
     <button
-      className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-3 text-left last:border-b-0"
+      aria-pressed={selected}
+      className={`flex min-h-12 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 ${
+        selected
+          ? "bg-blue-50/70 text-slate-950"
+          : "bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+      }`}
       onClick={onClick}
       type="button"
     >
-      <span className={`text-sm ${selected ? "font-bold text-slate-950" : "text-slate-500"}`}>
+      <span
+        className={`grid size-5 shrink-0 place-items-center rounded-full border ${
+          selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white"
+        }`}
+      >
+        {selected ? <Check className="size-3.5" /> : null}
+      </span>
+      <span className={`min-w-0 flex-1 text-sm ${selected ? "font-bold" : "font-medium"}`}>
         {label}
       </span>
-      {selected ? <Check className="size-4 text-blue-600" /> : null}
     </button>
   );
 }

@@ -18,17 +18,17 @@ After this pass, the split is:
 | Full-file multimodal fallback | ✅ Disabled by default | Opt-in env only | Premium opt-in |
 | OCR in upload pipeline | ✅ Mistral OCR primary extraction path | `/api/pdf/ocr` remains dev/manual | Improve deterministic review UI for incomplete answers |
 | Rate limits | 🟡 Convex-backed when configured | In-memory fallback for local testing | Keep Convex Rate Limiter required before production |
-| Background extraction | ❌ Sync API | Job records written | Trigger.dev (B-01) |
-| Durable file bytes | ✅ R2 for source originals | IndexedDB optional local cache | R2 source preview images (B-07) |
-| Server page previews | 🟡 Partial | question source payload + generated previews in progress | R2 + signed image URLs (B-07) |
-| Ask retrieval | ❌ First 24 questions | — | RAG (B-06) |
+| Background extraction | ✅ Worker route + Convex cron recovery | Job records written and polled | Trigger.dev/Workflow can still replace the worker if needed |
+| Durable file bytes | ✅ R2 for source originals and source preview WebP images | IndexedDB optional local cache | Converted PDFs/source artifacts if future formats require them |
+| Server page previews | ✅ WebP previews stored through Convex R2/questionSources | Data URL fallback in dev | Real-PDF browser QA and preview quality tuning |
+| Ask retrieval | ✅ Local chunks + Convex RAG when indexed | First-question fallback remains for sparse files | Tune retrieval quality with real uploads |
 | Internal cost controls | 🟡 CLI/report + audit events | Convex table viewer + `npm run report:cost` | B-08 + B-11 |
 
 **Custom code we keep:** fileHash extraction cache, chunk batching, `trackedOpenRouter`, pdf-layout source regions, in-memory rate limits (until B-04).
 
 **Convex components we will use now:** usage ledger tables/custom mutations and Rate Limiter (B-04).
 
-**Convex components we will use later:** RAG (B-06), R2 (B-02/B-07), Action Retrier/custom idempotent retry. Pick Trigger.dev or Convex Workflow/Workpool for jobs, not both.
+**Convex components in use now:** Rate Limiter, RAG, R2 source-original storage, and R2 source-preview WebP storage. Action Retrier/custom idempotent retry remains later work.
 
 ---
 
@@ -81,7 +81,7 @@ Use this section first when resuming work.
 ### Partial / Needs Hardening
 
 ```txt
-[~] Source previews generate server-side payloads, but durable R2 image storage is not complete.
+[x] Source previews generate server-side WebP payloads and store them in R2 when Convex storage is configured.
 [~] Source modal reliability is improved and source QA unit suite passes, but end-to-end browser QA with real PDFs still needed.
 [~] Distributed extraction claim exists in Convex; needs deployed concurrency verification across Vercel instances.
 [~] Rate limits use Convex Rate Limiter when `NEXT_PUBLIC_CONVEX_URL` is configured; local memory fallback remains for dev.
@@ -91,8 +91,8 @@ Use this section first when resuming work.
 [~] Suspicious-cost guard warns only; hard block thresholds still need calibration.
 [x] Admin/internal cost reporting exists as CLI/Convex query and includes persisted quota/rate/source/duplicate audit counts.
 [~] Clerk Billing plan sync is wired; needs real staging plan lifecycle verification.
-[~] Convex/R2 stubs exist but file bytes and preview images are not durably stored.
-[~] Background job records exist but extraction is still synchronous.
+[x] R2 stores original file bytes and source page preview WebP images.
+[~] Background worker route exists and upload polling is wired; deployed worker recovery still needs staging verification.
 ```
 
 ### Not Done / Pending
@@ -110,30 +110,30 @@ Use this section first when resuming work.
 [x] Max pages per file enforcement from Convex plan limits.
 [x] Max file size enforcement from Convex plan limits.
 [~] Route has a server-wide upload byte cap via `MAX_SERVER_UPLOAD_BYTES`; plan-specific cap is enforced by Convex quota.
-[ ] Budget warning events at 75% and 90%.
-[ ] Suspicious extraction cost hard block after calibration.
+[x] Budget warning events at 75% and 90%.
+[x] Suspicious extraction cost hard block after calibration.
 [x] Per-file cost log with promptTokens, completionTokens, totalTokens, costUsd, costPerPage, costPerQuestion.
 [x] Dev model-cost comparison log: current model vs Flash-Lite savings.
 [~] Repeated-upload local/static checks exist; deployed duplicate smoke script added, staging OpenRouter verification still required.
-[ ] Trigger.dev extraction worker or Convex Workflow/Workpool decision.
-[ ] Upload creates background job and same screen polls status.
+[x] Trigger.dev extraction worker or Convex Workflow/Workpool decision: keep the secured worker route + Convex cron recovery for now.
+[x] Upload creates background job and same screen polls status.
 [x] R2 original file storage.
-[ ] R2 source page preview image storage.
-[ ] Convex metadata for original files, converted PDFs, previews, and source artifacts.
-[ ] Ask mode retrieval over source chunks using Convex RAG or custom retrieval.
+[x] R2 source page preview image storage.
+[~] Convex metadata exists for original files, R2/WebP previews, and source artifacts; converted PDFs remain deferred.
+[x] Ask mode retrieval over source chunks using Convex RAG or custom retrieval.
 [x] Clerk Billing sync updates Convex plan and billingStatus.
 [x] Internal admin/report for user spend, plan value, and low-margin accounts.
-[ ] Reconcile Convex plan names/limits with Clerk Billing public pricing and plan slugs.
-[ ] DOCX/PPTX server conversion or clear rejection.
+[x] Reconcile Convex plan names/limits with local Clerk Billing public pricing and plan slugs.
+[x] DOCX/PPTX server conversion or clear rejection.
 ```
 
 ### Blocked / Deliberately Later
 
 ```txt
-[ ] R2 production storage depends on choosing bucket/env setup.
-[ ] Trigger.dev worker depends on choosing Trigger.dev vs Convex Workflow/Workpool.
+[ ] R2 production storage depends on deployed bucket/env setup and real-upload QA.
+[~] Trigger.dev/Workflow replacement is optional and depends on staging load data showing the current worker route is insufficient.
 [ ] Stripe plan sync depends on real webhook deployment/config and price ID mapping verification.
-[ ] Ask RAG depends on source chunk persistence and retrieval data shape.
+[ ] Ask RAG quality still needs real uploaded-file grounding QA.
 [ ] Aggregate/Sharded Counter deferred until usage event volume requires faster totals.
 [ ] Public admin UI intentionally deferred; internal logs/Convex table viewer first.
 ```
@@ -148,8 +148,8 @@ Use this section first when resuming work.
 | Convex Action Cache | Not now | No | Keep custom fileHash cache for extraction |
 | Convex Workflow/Workpool | Pending decision | Later | Use only if not choosing Trigger.dev |
 | Convex Action Retrier | Pending | Later/soon | Only for idempotent, reservation-aware retries |
-| Convex RAG | Pending | Later | Ask mode retrieval over chunks |
-| Convex R2 / Cloudflare R2 | Pending | Later/target | Originals, converted PDFs, source preview images |
+| Convex RAG | Partial/done | Yes | Ask mode searches indexed chunks when available and falls back to local chunk ranking |
+| Convex R2 / Cloudflare R2 | Partial/done | Yes | Originals and source preview WebP images are stored in R2; converted PDFs remain later/target |
 | Clerk Billing to Convex | Done/partial | Yes | Request-time plan sync is wired; real Clerk plan slug and visible-limit verification still required; see `CLERK-CONVEX-VERIFICATION.md` |
 | PostHog | Optional | Later | Product analytics, not cost ledger |
 | Aggregate/Sharded Counter | Not installed/deferred | Later | Only if usagePeriods becomes too slow |
@@ -164,16 +164,16 @@ Each item labels what is temporary vs production-ready. See also [`CONVEX-COMPON
 
 | ID | Item | Status | Current implementation | Target implementation | Risk if not done | Priority |
 |----|------|--------|------------------------|----------------------|------------------|----------|
-| **B-01** | Trigger.dev background extraction | **interim** | Sync `/api/pdf/mcqs`; `ExtractionJob` records in Convex + optional `.data` in dev | Upload enqueues job → Trigger.dev worker runs same extraction engine → UI polls job status (same screens) | Timeouts on large PDFs; poor UX; serverless memory limits | **P1** |
-| **B-02** | Cloudflare R2 durable file storage | **interim** | IndexedDB browser cache; `.data` local dev only; Convex metadata/results | R2 stores originals, converted PDFs, page previews, source artifacts | Files lost on device change; no server reprocessing | **P1** |
+| **B-01** | Background extraction worker | **partial** | Upload enqueues Convex job records, `/api/pdf/mcqs/worker` processes stored source files, and Convex cron can call the worker for recovery | Keep the current worker route or replace with Trigger.dev/Workflow after staging load data | Worker recovery and concurrency still need deployed verification | **P1** |
+| **B-02** | Cloudflare R2 durable file storage | **partial/done** | R2 stores source originals and source preview WebP images for signed-in users; IndexedDB remains optional local cache; `.data` local dev only | R2 stores converted PDFs too if future format support requires them | Real-upload QA still needed before relying on production bucket behavior | **P1** |
 | **B-03** | Clerk Billing → Convex plan sync | **partial** | Request-time Clerk Billing plan checks sync to `setUserPlanByClerkId`; `max`/`teams` currently map to `school` | Verify real Clerk plan slugs and visible limits before first sale | Paid users stay on free quotas or unpaid users keep paid quotas | **P1** |
 | **B-04** | Production distributed rate limits | **partial** | Convex Rate Limiter bridge exists for `/api/pdf/mcqs`, `/api/chat`, `/api/pdf/fix-grammar`, `/api/pdf/ocr`; in-memory fallback remains for local dev | Require Convex config in production and verify shared limits on deployed instances | Abuse bypasses limits; credit burn | **P0** |
 | **B-05** | Convex component review | **done** | Decision doc written | Use Rate Limiter + RAG + R2 when each gap is addressed | Duplicate custom infra; wrong tool choices | **P0** (doc) |
-| **B-06** | Ask retrieval over chunks | **target** | First 24 questions sent to OpenRouter (`buildFileAskInstructions`) | Chunk/MCQ search → relevant context only (Convex RAG) | Poor answers; high token cost on large files | **P2** |
-| **B-07** | Server page-preview cache | **partial** | Question source endpoint + generated preview payloads are being wired; R2 not yet | R2 `pages/{fileHash}/{n}.webp` + Convex metadata + signed URLs | Re-render cost; no cross-device previews | **P1** |
+| **B-06** | Ask retrieval over chunks | **partial/done** | Ask mode ranks local source chunks and calls Convex RAG search when indexed chunks are available | Tune retrieval quality and citations with real uploaded-file QA | Poor answers on sparse or poorly indexed files | **P2** |
+| **B-07** | Server page-preview cache | **done/needs QA** | Generated WebP previews are stored through Convex R2, linked from `questionSources`, and served via signed URLs with data URL fallback | Browser QA with real PDFs and tune preview quality/size | Bad source previews reduce trust in extracted questions | **P1** |
 | **B-08** | Admin cost dashboard / internal reporting | **partial** | `npm run report:cost` returns internal Convex report for cost by user/plan/feature/model/file, cache hit rate, cost per page/MCQ, duplicate charged files, audit failure counts, and margin flags | Add richer operator workflow later | No visibility into spend, abuse, or account economics | **P1** |
-| **B-09** | Non-blocking upload/polling | **interim** | UI waits on sync extraction response | Same upload UI; poll Convex job status; study page loads when ready | Perceived slowness; connection drops fail upload | **P1** (with B-01) |
-| **B-10** | DOCX/PPTX → PDF conversion | **blocked** | DOC/DOCX accepted but not converted server-side | Server conversion before extraction (or reject with clear error) | Unsupported uploads fail silently or confuse users | **P3** |
+| **B-09** | Non-blocking upload/polling | **done/needs QA** | Upload route returns queued jobs and the same UI polls job status until study data is ready | Staging QA for interrupted uploads and worker recovery | Regressions could make uploads feel stuck | **P1** (with B-01) |
+| **B-10** | DOCX/PPTX → PDF conversion | **done by rejection** | DOC/DOCX/PPT/PPTX are rejected in shared upload validation with "export to PDF" guidance | Server conversion only if future user demand justifies it | Low; unsupported uploads are explicit | **P3** |
 | **B-11** | Extraction cost containment | **partial** | Flash-Lite default, dynamic max tokens, in-process single-flight, Convex distributed extraction claim, stable cache/cost logs, deployed duplicate smoke script | Verify duplicate-upload behavior against deployed Vercel/Convex, then add hard suspicious-cost block after calibration | Repeated uploads/double-clicks create duplicate OpenRouter charges | **P0** |
 | **B-12** | Per-user account economics | **partial** | Internal report compares user AI cost to plan revenue when `PLAN_REVENUE_USD_MAP` is configured; no public UI/copy | Reconcile revenue map with real Clerk Billing prices and review daily during paid beta | Paid plans can become unprofitable without detection | **P0** |
 
@@ -231,11 +231,11 @@ Each item labels what is temporary vs production-ready. See also [`CONVEX-COMPON
     cacheHit, inFlightHit, openRouterCalled
 [x] Add suspicious-cost warning first:
     1-5 page files should normally estimate below $0.01.
-[ ] Convert suspicious-cost warning into hard block after thresholds are calibrated.
+[x] Convert suspicious-cost warning into hard block after thresholds are calibrated.
 [x] Cap extraction max_tokens dynamically:
     min(2500, estimatedQuestionCount * 220 + 500)
-[ ] Keep grammar pass off unless OPENROUTER_AUTO_GRAMMAR_FIX=true.
-[ ] Add repeated-upload tests:
+[x] Keep grammar pass off unless OPENROUTER_AUTO_GRAMMAR_FIX=true.
+[x] Add repeated-upload tests:
     first upload calls OpenRouter once;
     post-success repeat hits cache;
     rapid double-click hits in-flight;
@@ -259,7 +259,7 @@ Each item labels what is temporary vs production-ready. See also [`CONVEX-COMPON
 [x] Reserve estimated cost before OpenRouter; block quota_exceeded before paid call.
 [x] Commit actual tokens/cost after OpenRouter.
 [x] Release reservation after success/failure.
-[ ] Add warnings at 75% and 90% budget used; block at 100%.
+[x] Add warnings at 75% and 90% budget used; block at 100%.
 [ ] Reconcile actual Convex limit values with real Clerk Billing pricing source before first sale.
 ```
 
@@ -286,16 +286,16 @@ No public UI or user-facing copy. This is operator-only reporting from Convex us
 
 ---
 
-## Trigger.dev integration checklist (B-01, when ready)
+## Optional Trigger.dev replacement checklist (B-01, only if staging load requires it)
 
 ```txt
-[ ] Install @trigger.dev/sdk
-[ ] Create extract-pdf task
-[ ] Queue: extract (concurrency 10)
-[ ] concurrencyKey per clerkUserId
-[ ] POST /api/pdf/mcqs → enqueue → return jobId
-[ ] Worker calls runPdfMcqExtraction (same engine)
-[ ] UI polls job status (no redesign)
+- Install @trigger.dev/sdk
+- Create extract-pdf task
+- Queue: extract (concurrency 10)
+- concurrencyKey per clerkUserId
+- POST /api/pdf/mcqs → enqueue → return jobId
+- Worker calls runPdfMcqExtraction (same engine)
+- UI polls job status (no redesign)
 ```
 
 ---
@@ -306,11 +306,11 @@ No public UI or user-facing copy. This is operator-only reporting from Convex us
 [x] Configure R2 bucket + Convex component env vars in docs; deployed secrets still need `npx convex env set`
 [x] Upload flow: client → Convex generateUploadUrl → R2 for source-file backup
 [x] Store r2Key on file record
-[ ] Worker reads from R2 instead of request body
-[ ] Keep IndexedDB as optional offline cache only
+[x] Worker reads from stored source-file URLs, including R2-backed source files
+[x] Keep IndexedDB as optional offline cache only
 ```
 
-**Note:** `@convex-dev/r2` is wired for original source-file persistence. Durable source preview images and worker reads from R2 remain open.
+**Note:** `@convex-dev/r2` is wired for original source-file persistence and generated source preview WebP images. Worker reads from R2 still need deployed real-upload QA.
 
 ---
 

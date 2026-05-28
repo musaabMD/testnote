@@ -218,12 +218,14 @@ type MockExamPanelProps = {
   file: PdfFileQueueItem;
   questions: PdfMcq[];
   onRecordAnswer: (questionId: string, answer: QuestionAnswer) => void;
+  returnHref?: string;
 };
 
 export function MockExamPanel({
   file,
   questions,
   onRecordAnswer,
+  returnHref = "/dashboard",
 }: MockExamPanelProps) {
   const router = useRouter();
   const sessionChrome = useStudySessionChromeOptional();
@@ -481,7 +483,7 @@ export function MockExamPanel({
   if (!started) {
     return (
       <IntroScreen
-        onBack={() => router.push("/dashboard")}
+        onBack={() => router.push(returnHref)}
         onStart={() => setStarted(true)}
         questionCount={examQuestions.length}
         subjectTitle={file.result.title || file.name}

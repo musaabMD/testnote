@@ -183,6 +183,8 @@ export default defineSchema({
     sourcePagePreviewId: v.string(),
     pageNumber: v.number(),
     imageUrl: v.string(),
+    previewMimeType: v.optional(v.string()),
+    previewR2Key: v.optional(v.string()),
     width: v.number(),
     height: v.number(),
     sourceRegion: v.any(),

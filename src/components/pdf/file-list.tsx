@@ -12,17 +12,8 @@ import {
   saveBookmarkedFileIds,
   saveFileUpvotes,
 } from "@/lib/pdf-view-storage";
-import { CalendarDays, FileText, Plus, Search, Upload, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-
-type DateFilter = "all" | "today" | "yesterday" | "last-week";
-
-const DATE_FILTERS: Array<{ value: DateFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "last-week", label: "Last week" },
-];
+import { FileText, Plus, Search, Upload, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 type FileListProps = {
   files: PdfFileQueueItem[];
@@ -31,6 +22,7 @@ type FileListProps = {
   dragOver: boolean;
   uploadError: string;
   onPickFiles: () => void;
+  headerContent?: ReactNode;
   showHeader?: boolean;
   showAddButton?: boolean;
 };
@@ -42,11 +34,11 @@ export function FileList({
   dragOver,
   uploadError,
   onPickFiles,
+  headerContent,
   showHeader = true,
   showAddButton = true,
 }: FileListProps) {
   const [fileSearch, setFileSearch] = useState("");
-  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
   const [bookmarkedFileIds, setBookmarkedFileIds] = useState<Set<string>>(
     () => new Set(),
@@ -56,14 +48,12 @@ export function FileList({
     () => new Set(),
   );
   const [shareNotice, setShareNotice] = useState("");
-  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setBookmarkedFileIds(loadBookmarkedFileIds());
       setUpvoteCounts(loadFileUpvoteCounts());
       setUpvotedFileIds(loadUpvotedFileIds());
-      setNowMs(Date.now());
     }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
@@ -78,7 +68,6 @@ export function FileList({
     });
 
     return sorted.filter((file) => {
-      if (nowMs && !matchesDateFilter(file, dateFilter, nowMs)) return false;
       if (!normalized) return true;
 
       return [
@@ -92,7 +81,7 @@ export function FileList({
           .toLowerCase()
           .includes(normalized);
     });
-  }, [bookmarkedFileIds, dateFilter, fileSearch, files, nowMs]);
+  }, [bookmarkedFileIds, fileSearch, files]);
 
   function toggleFileBookmark(fileId: string) {
     setBookmarkedFileIds((current) => {
@@ -146,9 +135,13 @@ export function FileList({
     }
   }
 
+  const compactControls = !showHeader;
+
   return (
     <div>
-      {showHeader ? (
+      {headerContent ? (
+        <div className="mx-auto mb-5 max-w-[760px]">{headerContent}</div>
+      ) : showHeader ? (
         <div className="text-center">
           <h1 className="mb-3 text-5xl font-black tracking-tight text-gray-900">
             Your library
@@ -170,53 +163,50 @@ export function FileList({
         </div>
       ) : null}
 
-      <div className={`relative mb-6 ${showHeader ? "mt-10" : "mt-0"}`}>
-        <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-gray-400" aria-hidden />
-        <input
-          className="w-full rounded-2xl border-2 border-gray-300 bg-white py-3.5 pl-11 pr-4 text-sm text-gray-700 transition-all placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
-          onChange={(event) => setFileSearch(event.target.value)}
-          placeholder="Search files by name or content..."
-          type="text"
-          value={fileSearch}
-        />
-        {fileSearch ? (
-          <button
-            aria-label="Clear search"
-            className="absolute right-3 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-full text-gray-400 transition hover:bg-gray-200 hover:text-gray-700"
-            onClick={() => setFileSearch("")}
-            type="button"
+      <div
+        className={`mx-auto max-w-[760px] border-2 border-[#e5e5e5] bg-white p-3 shadow-[0_5px_0_#e5e5e5] ${
+          compactControls ? "mb-4 rounded-[22px]" : "mb-6 mt-1 rounded-[24px]"
+        }`}
+      >
+        <div className="relative w-full rounded-[18px] bg-[#f8fafc] transition focus-within:bg-white focus-within:ring-2 focus-within:ring-[#263238]/15">
+          <span
+            className={`absolute left-3 top-1/2 grid -translate-y-1/2 place-items-center rounded-2xl bg-white text-[#4b5563] shadow-sm ${
+              compactControls ? "size-9" : "size-10"
+            }`}
           >
-            <X className="size-4" aria-hidden />
-          </button>
-        ) : null}
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-1.5">
-        <span className="flex shrink-0 items-center gap-1.5 px-2 text-xs font-bold uppercase tracking-wide text-slate-400">
-          <CalendarDays className="size-3.5" aria-hidden />
-          Date
-        </span>
-        {DATE_FILTERS.map((filter) => {
-          const active = dateFilter === filter.value;
-          return (
+            <Search className={compactControls ? "size-4" : "size-5"} aria-hidden />
+          </span>
+          <input
+            className={`w-full border-0 bg-transparent font-black text-[#263238] outline-none transition placeholder:font-black placeholder:text-[#afafaf] ${
+              compactControls
+                ? "min-h-12 rounded-[18px] py-3 pl-14 pr-11 text-sm"
+                : "min-h-14 rounded-[20px] py-4 pl-16 pr-12 text-base"
+            }`}
+            onChange={(event) => setFileSearch(event.target.value)}
+            placeholder="Search files by name or content..."
+            type="text"
+            value={fileSearch}
+          />
+          {fileSearch ? (
             <button
-              key={filter.value}
-              aria-pressed={active}
-              className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
-                active
-                  ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
-                  : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+              aria-label="Clear search"
+              className={`absolute right-2 top-1/2 grid -translate-y-1/2 place-items-center rounded-full text-[#afafaf] transition hover:bg-white hover:text-[#4b4b4b] ${
+                compactControls ? "size-9" : "size-10"
               }`}
-              onClick={() => setDateFilter(filter.value)}
+              onClick={() => setFileSearch("")}
               type="button"
             >
-              {filter.label}
+              <X className={compactControls ? "size-4" : "size-5"} aria-hidden />
             </button>
-          );
-        })}
+          ) : null}
+        </div>
       </div>
 
-      <p className="mb-3 text-xs font-semibold text-gray-400">
+      <p
+        className={`mx-auto max-w-[760px] text-center font-bold text-[#afafaf] ${
+          compactControls ? "mb-3 text-xs" : "mb-4 text-sm"
+        }`}
+      >
         {isReady
           ? `${filteredFiles.length} of ${files.length} file${files.length === 1 ? "" : "s"}`
           : "Loading files…"}
@@ -228,17 +218,34 @@ export function FileList({
       ) : null}
 
       {shareNotice ? (
-        <p className="mb-3 rounded-2xl bg-emerald-50 px-4 py-3 text-center text-sm font-bold text-emerald-700">
+        <p className="mx-auto mb-3 max-w-[760px] rounded-2xl bg-[#f8fafc] px-4 py-3 text-center text-sm font-bold text-[#263238]">
           {shareNotice}
         </p>
       ) : null}
 
       {!isReady ? (
-        <div className="rounded-2xl bg-white p-10 text-center shadow-sm">
-          <p className="text-sm font-semibold text-gray-400">Loading your library…</p>
+        <div className="mx-auto max-w-[820px] rounded-2xl border-2 border-[#e5e5e5] bg-white p-10 text-center shadow-[0_4px_0_#e5e5e5]">
+          <p className="text-sm font-bold text-[#afafaf]">Loading your library…</p>
         </div>
       ) : files.length ? (
-        <div className="flex flex-col gap-3">
+        <div className="mx-auto flex max-w-[820px] flex-col gap-4">
+          <button
+            className="group relative overflow-hidden rounded-2xl border-2 border-[#ded9d9] border-b-4 bg-[#f5f3f3] shadow-[0_6px_0_#ded9d9,0_14px_28px_rgba(38,50,56,0.08)] ring-4 ring-[#f5f3f3] transition-all duration-200 before:absolute before:inset-y-3 before:left-3 before:w-1.5 before:rounded-full before:bg-[#263238] hover:-translate-y-0.5 hover:border-[#d2cccc] hover:bg-[#efeded] hover:shadow-[0_7px_0_#d2cccc,0_18px_34px_rgba(38,50,56,0.11)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ded9d9] active:translate-y-0.5 active:shadow-[0_2px_0_#d2cccc] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isProcessing}
+            onClick={onPickFiles}
+            type="button"
+          >
+            <div className="flex select-none items-center gap-3 px-7 py-4 text-left sm:gap-4 sm:px-8 sm:py-[18px]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-base font-black text-[#263238] sm:text-[17px]">
+                  {isProcessing ? "Extracting questions..." : "Add new course"}
+                </p>
+              </div>
+              <span className="grid size-11 shrink-0 place-items-center rounded-full border-2 border-[#ded9d9] bg-white text-[#8a98aa] shadow-[0_3px_0_#ded9d9] transition group-hover:bg-[#e9e7e7] group-hover:text-[#263238] group-hover:shadow-[0_3px_0_#d2cccc] sm:size-12">
+                <Plus className="size-5" strokeWidth={3} aria-hidden />
+              </span>
+            </div>
+          </button>
           {filteredFiles.length ? (
             filteredFiles.map((file) => {
               const isBookmarked = bookmarkedFileIds.has(file.id);
@@ -261,64 +268,39 @@ export function FileList({
               );
             })
           ) : (
-            <div className="rounded-2xl bg-white px-4 py-12 text-center shadow-sm">
-              <Search className="mx-auto size-10 text-gray-300" aria-hidden />
-              <p className="mt-3 text-sm font-bold text-gray-500">
-                No files match this filter
+            <div className="rounded-2xl border-2 border-[#e5e5e5] bg-white px-4 py-12 text-center shadow-[0_4px_0_#e5e5e5]">
+              <Search className="mx-auto size-10 text-[#afafaf]" aria-hidden />
+              <p className="mt-3 text-sm font-black text-[#777]">
+                No files match this search
               </p>
             </div>
           )}
         </div>
       ) : (
         <button
-          className={`w-full rounded-2xl border-2 border-dashed bg-white p-12 text-center shadow-sm transition-colors ${
+          className={`w-full rounded-2xl border-2 border-dashed bg-white p-10 text-center shadow-[0_4px_0_#e5e5e5] transition-colors ${
             dragOver
-              ? "border-sky-400 bg-sky-50"
-              : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/40"
+              ? "border-[#263238] bg-[#f8fafc]"
+              : "border-[#e5e5e5] hover:border-[#263238] hover:bg-[#f8fafc]"
           }`}
           onClick={onPickFiles}
           type="button"
         >
-          <div className="mx-auto grid size-16 place-items-center rounded-2xl bg-gray-100 text-gray-400">
+          <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-[#f7f7f7] text-[#afafaf]">
             {dragOver ? (
-              <Upload className="size-8 text-sky-600" aria-hidden />
+              <Upload className="size-7 text-[#263238]" aria-hidden />
             ) : (
-              <FileText className="size-8" aria-hidden />
+              <FileText className="size-7" aria-hidden />
             )}
           </div>
-          <h2 className="mt-4 text-xl font-black text-gray-900">
+          <h2 className="mt-4 text-lg font-black text-[#263238]">
             {dragOver ? "Drop to upload" : "No processed files found"}
           </h2>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm font-bold text-[#777]">
             Drop a PDF here or click to browse — questions extract automatically
           </p>
         </button>
       )}
     </div>
-  );
-}
-
-function matchesDateFilter(
-  file: PdfFileQueueItem,
-  filter: DateFilter,
-  nowMs: number,
-) {
-  if (filter === "all") return true;
-
-  const dayDiff = getUploadDayDiff(getFileAddedAt(file), nowMs);
-  if (filter === "today") return dayDiff === 0;
-  if (filter === "yesterday") return dayDiff === 1;
-  return dayDiff >= 2 && dayDiff < 8;
-}
-
-function getUploadDayDiff(timestamp: number, nowMs: number) {
-  const startOfToday = new Date(nowMs);
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const startOfUploadDay = new Date(timestamp);
-  startOfUploadDay.setHours(0, 0, 0, 0);
-
-  return Math.floor(
-    (startOfToday.getTime() - startOfUploadDay.getTime()) / 86_400_000,
   );
 }

@@ -1,18 +1,18 @@
 # TestNote Publish Readiness Checklist
 
-Audit date: 2026-05-26
+Audit date: 2026-05-28
 
 ## Overall Status
 
-Current verdict: ready for staging/demo validation, not ready for paid production launch.
+Current verdict: live for public demo traffic, not ready for paid production launch.
 
 Estimated readiness:
 
-- Public demo / staging preview: 75%
-- Private beta with manual monitoring: 60%
-- Paid production launch: 45%
+- Public demo / staging preview: 90%
+- Private beta with manual monitoring: 70%
+- Paid production launch: 55%
 
-Main reason: the app builds and lint is clean, but production Clerk Billing to Convex verification, deployed quota/rate-limit behavior, duplicate-charge verification, and production support operations still need staging proof.
+Main reason: the app is deployed at `https://www.drnote.co` and core build/runtime gates pass, but production Clerk Billing to Convex verification, paid-session duplicate-charge proof, OpenRouter hard caps, and production support operations still need owner/dashboard validation.
 
 ## Verified Today
 
@@ -29,8 +29,10 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [x] App-only lint warning surface is clean through the configured lint gate
 [x] Bundle report runs: npm run report:bundle
 [~] Lighthouse baseline saved to .qa/lighthouse-home.json; performance/best-practices are not passing yet
-[ ] Internal cost report runs: npm run report:cost
-[ ] Deployed duplicate extraction test runs: npm run test:deployed-duplicate-extraction
+[x] Internal cost report runs: npm run report:cost
+[~] Deployed duplicate extraction test runs against `https://www.drnote.co`; anonymous requests correctly stop at 402 before OpenRouter, but production Clerk does not allow backend-created sessions, so paid-session proof still requires a real live browser session cookie.
+[x] Live production deploy ready and aliased: `dpl_3vFK1RG5pV8ckjkrvP9eH6ozFcZ3` / `https://www.drnote.co`
+[x] Live unsupported DOCX upload returns 400 with clear user-facing copy.
 ```
 
 ## Feature Readiness
@@ -62,6 +64,7 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [x] AI extraction route exists: /api/pdf/mcqs.
 [x] File hash cache and in-process duplicate suppression exist.
 [x] Convex distributed extraction claim exists.
+[x] Upload job creation now uses the Convex extraction-key claim, so rapid duplicate uploads return the existing queued/processing job instead of creating a second queued job.
 [x] Full-file multimodal fallback is disabled by default.
 [x] OCR route is disabled by default outside explicit env.
 [x] Extraction returns queued status and polling, persists source before queueing, and runs through the secured durable worker path instead of Next after().
@@ -101,7 +104,7 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [~] Convex-backed limits need deployed shared-instance verification.
 [~] Suspicious extraction cost guard hard-blocks unusual estimates; thresholds are not calibrated with production data.
 [x] Budget warning events at 75% and 90% are implemented.
-[~] Internal cost report requires deployed Convex credentials and usage secrets.
+[x] Internal cost report runs with deployed Convex credentials and usage secrets.
 ```
 
 ### Storage and Background Jobs
@@ -110,8 +113,8 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [x] Production guard prevents silent .data usage without Convex.
 [x] Convex metadata/storage scaffolding exists.
 [x] R2 original file storage is wired through Convex R2; deploy env and real-upload QA still required.
-[~] Source preview images are stored through Convex questionSources; R2/webp storage is still deferred.
-[ ] Background extraction worker is not implemented.
+[x] Source preview images are generated as WebP and stored through Convex R2/questionSources when configured.
+[x] Background extraction worker route and Convex cron recovery are implemented.
 [x] Upload job polling/non-blocking status is implemented.
 ```
 
@@ -125,7 +128,7 @@ Main reason: the app builds and lint is clean, but production Clerk Billing to C
 [x] README is release/runbook focused.
 [x] ESLint release surface ignores generated/worktree/archive folders.
 [x] React Compiler/React Hooks lint errors are fixed.
-[ ] Convex generated files should be regenerated/verified for CLI scripts.
+[x] Convex generated files regenerated/verified for CLI scripts: `npx convex codegen`.
 ```
 
 ## Current Not Done List
@@ -135,7 +138,7 @@ P0 before paid launch:
 ```txt
 [ ] Verify Clerk Billing plan slugs/prices match Convex `free`, `starter`, `pro`, and `school` quota profiles.
 [ ] Verify paid, canceled, and past-due quota behavior in staging.
-[ ] Verify deployed duplicate uploads create only one paid OpenRouter call.
+[~] Verify deployed duplicate uploads create only one paid OpenRouter call. Implementation is hardened at upload job claim; final proof still requires a real paid production session cookie plus OpenRouter usage review.
 [ ] Set OpenRouter hard spend caps for dev/staging/production keys.
 [ ] Require/verify Convex-backed rate limits in production.
 ```
@@ -144,10 +147,10 @@ P1 before broader beta:
 
 ```txt
 [x] Add durable R2 storage for original files.
-[ ] Add durable R2/webp storage for source page preview images.
-[ ] Move extraction to durable background jobs.
+[x] Add durable R2/webp storage for source page preview images.
+[x] Move extraction to durable background jobs.
 [ ] Complete manual browser QA with real PDFs.
-[ ] Reconcile Convex plan limits with Clerk Billing product copy and plan slugs.
+[x] Reconcile Convex plan limits with local Clerk Billing product copy and plan slugs; live Clerk Dashboard verification remains P0.
 ```
 
 P2 later:
@@ -164,16 +167,16 @@ P2 later:
 
 | Smoke item | Owner | Status | Date | Notes |
 |------------|-------|--------|------|-------|
-| Deploy latest main/staging build with production-like Clerk and Convex env | TBD | Not started | TBD | Use a staging Clerk Billing config, not dev placeholders. |
-| Visit public pages: `/`, `/features`, `/pricing`, `/exams`, `/support` | TBD | Not started | TBD | Confirm 200 responses, no console errors, and no unfinished feature promises. |
+| Deploy latest main/staging build with production-like Clerk and Convex env | Codex | Done | 2026-05-28 | Production deployment `dpl_3vFK1RG5pV8ckjkrvP9eH6ozFcZ3` is live at `https://www.drnote.co`. |
+| Visit public pages: `/`, `/features`, `/pricing`, `/exams`, `/support` | Codex | Done | 2026-05-28 | All returned 200 from `https://www.drnote.co`. |
 | Verify anonymous exam catalog library add/remove on `/exams` and `/exam/[slug]` | TBD | Not started | TBD | Expected: local browser save works without sign-in. |
-| Verify unauthenticated protected routes redirect: `/dashboard`, `/pdf`, `/dashboard/content/study` | TBD | Not started | TBD | Expected: Clerk redirect when Clerk env is enabled. |
+| Verify unauthenticated protected routes redirect: `/dashboard`, `/pdf`, `/dashboard/content/study` | Codex | Done | 2026-05-28 | All returned 307 to `/pricing` with `x-clerk-auth-status: signed-out`. |
 | Sign in, upload a small searchable PDF, and reach study mode | TBD | Not started | TBD | Confirm job completes and no duplicate upload is created. |
 | Open quiz, exam, review, flashcards, summary, and sessions from one file | TBD | Not started | TBD | Use a real PDF with at least 4 answer choices. |
 | Open source preview from a question | TBD | Not started | TBD | Confirm no 404 loop or modal hang. |
-| Trigger unsupported file and too-large file errors | TBD | Not started | TBD | Confirm user-facing copy is clear. |
-| Run `npm run report:cost` against staging | TBD | Not started | TBD | Requires deployed Convex URL and secrets. |
-| Run `npm run test:deployed-duplicate-extraction` | TBD | Not started | TBD | Requires staging URL, test PDF, and auth token/cookie. |
+| Trigger unsupported file and too-large file errors | Codex | Partial | 2026-05-28 | DOCX live API smoke returns 400 with clear copy; too-large file still needs browser/API size-limit QA. |
+| Run `npm run report:cost` against staging | Codex | Done | 2026-05-28 | Command runs; report shows historical duplicate-charged files, so paid duplicate proof remains open. |
+| Run `npm run test:deployed-duplicate-extraction` | Codex | Blocked | 2026-05-28 | Anonymous live run returns 402 before OpenRouter. Production Clerk rejects backend-created sessions; requires real signed-in paid user cookie/token. |
 
 ## Final Paid-Launch Checklist
 
@@ -184,9 +187,9 @@ P2 later:
 | Paid, canceled, and past-due users receive expected Convex limits/blocks | TBD | Not started | TBD | Verify with real staging users. |
 | OpenRouter hard spend caps are set for production keys | TBD | Not started | TBD | External dashboard action. |
 | Convex-backed rate limits are verified on deployed shared instances | TBD | Not started | TBD | Confirm no local memory-only limiter in production path. |
-| Duplicate-upload smoke proves one paid OpenRouter call across deployed instances | TBD | Not started | TBD | Use audit events plus OpenRouter usage. |
+| Duplicate-upload smoke proves one paid OpenRouter call across deployed instances | TBD | Blocked | 2026-05-28 | Code now uses atomic queued-job claim; live paid-session proof still requires real Clerk browser session and OpenRouter dashboard review. |
 | Support inbox/process is monitored for `/support` requests | TBD | Not started | TBD | Confirm `support@drnote.co` routing and owner. |
-| Production Clerk keys, Convex deployment, and required secrets are set | TBD | Not started | TBD | Include `USAGE_LEDGER_SECRET` and `EXTRACTION_STORAGE_SECRET`. |
+| Production Clerk keys, Convex deployment, and required secrets are set | Codex | Partial | 2026-05-28 | Vercel production has Clerk, Convex, quota, R2, OpenRouter, webhook, and extraction storage env vars; `USAGE_LEDGER_SECRET` falls back to `EXTRACTION_STORAGE_SECRET`. `ADMIN_CLERK_USER_IDS` was added for production owner access. |
 | Public copy review is complete | TBD | Not started | TBD | Confirm no unfinished paid features are promised. |
 | Go/no-go owner signs off | TBD | Not started | TBD | Final launch decision. |
 
@@ -197,10 +200,10 @@ npx tsc --noEmit
 PASS
 
 npm run test:source-qa
-PASS: 20 tests
+PASS: 22 tests
 
 npm run test:pipeline-safety
-PASS: 43 tests
+PASS: 61 tests
 
 npm run test:extraction-failure
 PASS: 14 tests
@@ -215,7 +218,14 @@ npm run report:cost
 PASS
 
 npm run test:deployed-duplicate-extraction
-NOT RUN: requires DEPLOYED_BASE_URL, DEPLOYED_TEST_PDF_PATH, and auth cookie or bearer token
+PARTIAL/BLOCKED: unauthenticated live run returns 402 before OpenRouter; production Clerk rejects backend-created sessions, so paid duplicate proof needs a real browser session cookie.
+
+Live route smoke, https://www.drnote.co
+PASS: /, /features, /pricing, /exams, /support, /robots.txt, /sitemap.xml returned 200
+PASS: /dashboard, /pdf, /dashboard/content/study returned 307 to /pricing
+
+Live unsupported upload smoke
+PASS: DOCX upload returned 400 unsupported_file_type with clear copy
 
 npm run report:bundle
 PASS

@@ -127,27 +127,27 @@ export function QBankUpload({
 
   const shellClass = isDashboard
     ? "relative w-full rounded-3xl border-2 border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6"
-    : "relative w-full max-w-xl rounded-3xl border-2 border-gray-300 bg-gray-100 p-6 shadow-sm sm:p-8";
+    : "relative mx-auto w-full max-w-[590px] rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-200/70 sm:p-5";
 
   const dropZoneClass = isDashboard
     ? isDragging
       ? "border-blue-500 bg-blue-50"
       : "border-slate-300 bg-white hover:border-blue-400 hover:bg-blue-50/40"
     : isDragging
-      ? "border-gray-500 bg-gray-200"
-      : "border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50";
+      ? "border-emerald-500 bg-emerald-50 shadow-[inset_0_0_0_4px_rgba(16,185,129,0.12)]"
+      : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-white";
 
   const addBtnClass = isDashboard
     ? "rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-    : "rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-700";
+    : "rounded-lg bg-slate-950 px-4 py-1.5 text-xs font-bold text-white transition hover:bg-slate-800";
 
   const sourcesTabClass = isDashboard
     ? "absolute top-5 -right-px flex items-center gap-1.5 rounded-l-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-    : "absolute top-6 -right-px flex items-center gap-1.5 rounded-l-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-gray-700";
+    : "absolute top-5 -right-px flex items-center gap-1.5 rounded-l-xl border border-r-0 border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50";
 
   const inputWrapClass = isDashboard
     ? "mt-4 rounded-2xl border-2 border-slate-200 bg-white px-4 py-3 transition-colors focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10"
-    : "mt-4 rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 transition-colors focus-within:border-gray-400";
+    : "mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition-colors focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10";
 
   async function uploadFile(entry: UploadedFile) {
     setGlobalError("");
@@ -315,11 +315,8 @@ export function QBankUpload({
         />
       )}
 
-      <div
-        className={`fixed top-0 right-0 z-50 flex h-full w-80 flex-col border-l-2 border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out ${
-          sidebarOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
+      {sidebarOpen ? (
+        <div className="fixed top-0 right-0 z-50 flex h-full w-80 flex-col border-l-2 border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <span className="text-sm font-bold text-gray-800">
             Sources
@@ -439,7 +436,8 @@ export function QBankUpload({
             </p>
           )}
         </div>
-      </div>
+        </div>
+      ) : null}
 
       <div className={shellClass}>
         {totalItems > 0 && (
@@ -462,8 +460,34 @@ export function QBankUpload({
           </button>
         )}
 
+        {!isDashboard ? (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 font-[family-name:var(--font-dm-sans)]">
+            <div className="flex items-center gap-2">
+              <span className="grid size-9 place-items-center rounded-xl bg-slate-950 text-white">
+                <Upload className="size-4" aria-hidden />
+              </span>
+              <span className="text-sm font-bold text-slate-950">
+                Upload sources
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+              <span className="rounded-full bg-slate-100 px-3 py-1.5">
+                PDF
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1.5">
+                images
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1.5">
+                text
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         <div
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-all duration-200 ${dropZoneClass}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 text-center transition-all duration-200 ${
+            isDashboard ? "py-10" : "min-h-[220px] py-8 sm:min-h-[250px] sm:py-10"
+          } ${dropZoneClass}`}
           onClick={() => fileInputRef.current?.click()}
           onDragLeave={handleDragLeave}
           onDragOver={handleDragOver}
@@ -486,19 +510,25 @@ export function QBankUpload({
             type="file"
           />
           <div
-            className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border ${
+            className={`mb-4 flex items-center justify-center rounded-2xl border ${
               isDashboard
-                ? "border-blue-100 bg-blue-50"
-                : "border-gray-200 bg-gray-100"
+                ? "h-12 w-12 border-blue-100 bg-blue-50"
+                : "h-14 w-14 border border-slate-200 bg-white shadow-sm"
             }`}
           >
             <Upload
-              className={isDashboard ? "text-blue-600" : "text-gray-500"}
-              size={22}
-              strokeWidth={2.2}
+              className={isDashboard ? "text-blue-600" : "text-emerald-600"}
+              size={isDashboard ? 22 : 26}
+              strokeWidth={2.4}
             />
           </div>
-          <p className="text-base font-bold text-gray-900">
+          <p
+            className={
+              isDashboard
+                ? "text-base font-bold text-gray-900"
+                : "font-[family-name:var(--font-sora)] text-2xl font-black leading-tight text-slate-950"
+            }
+          >
             {safeToLeave
               ? "Working in the background"
               : isProcessing
@@ -507,21 +537,40 @@ export function QBankUpload({
                 ? "Drop your files here"
                 : "Drop files or click to browse"}
           </p>
-          <p className="mt-1 text-sm text-gray-400">
+          <p
+            className={
+              isDashboard
+                ? "mt-1 text-sm text-gray-400"
+                : "mt-3 max-w-md text-sm font-medium leading-6 text-slate-600"
+            }
+          >
             {safeToLeave
               ? "Safe to leave this page. Progress will continue."
               : "PDF, images, and text — MCQs extracted automatically"}
           </p>
+          {!isDashboard ? (
+            <div className="mt-5 flex flex-wrap justify-center gap-2 font-[family-name:var(--font-dm-sans)] text-xs font-bold">
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700">
+                Extract questions
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700">
+                Make flashcards
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-slate-700">
+                Start timed quiz
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <div className={inputWrapClass}>
           <div className="flex items-start gap-2">
             <LinkIcon
-              className={`mt-1 shrink-0 ${isDashboard ? "text-blue-500" : "text-gray-500"}`}
+              className={`mt-1 shrink-0 ${isDashboard ? "text-blue-500" : "text-slate-400"}`}
               size={15}
             />
             <textarea
-              className="flex-1 resize-none bg-transparent text-sm leading-relaxed text-gray-900 outline-none placeholder:text-gray-500"
+              className="flex-1 resize-none bg-transparent text-sm font-semibold leading-relaxed text-gray-900 outline-none placeholder:text-gray-500"
               onChange={(event) => setLinkValue(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Paste notes or MCQ text — press Enter to extract"
