@@ -130,6 +130,17 @@ export async function loadSourcePagePreview(
   return promise;
 }
 
+async function loadSourcePagePreviewSafe(
+  fileId: string,
+  pageNumber: number,
+): Promise<PagePreviewLoadResult | null> {
+  try {
+    return await loadSourcePagePreview(fileId, pageNumber);
+  } catch {
+    return null;
+  }
+}
+
 export async function renderSourcePageWithPdfJs(args: {
   source: PdfSource;
   previewUrl: string;
@@ -168,7 +179,7 @@ export async function renderSourcePageWithPdfJs(args: {
 
 /**
  * Load a full PDF page image for the source viewer.
- * Always renders the real document page via PDF.js (client) — never SVG placeholders.
+ * Prefer generated previews so source clicks open fast; render with PDF.js only as a fallback.
  */
 export async function loadQuestionSourcePage(args: {
   questionId?: string;
@@ -179,6 +190,11 @@ export async function loadQuestionSourcePage(args: {
   renderPage?: typeof renderSourcePageWithPdfJs;
 }): Promise<PagePreviewLoadResult> {
   const renderPage = args.renderPage ?? renderSourcePageWithPdfJs;
+
+  if (args.fileId) {
+    const cached = await loadSourcePagePreviewSafe(args.fileId, args.pageNumber);
+    if (cached) return cached;
+  }
 
   try {
     const rendered = await renderPage({
@@ -201,7 +217,7 @@ export async function loadQuestionSourcePage(args: {
     return rendered;
   } catch (error) {
     if (args.fileId) {
-      const cached = await loadSourcePagePreview(args.fileId, args.pageNumber);
+      const cached = await loadSourcePagePreviewSafe(args.fileId, args.pageNumber);
       if (cached) return cached;
     }
     throw error;

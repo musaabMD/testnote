@@ -14,6 +14,7 @@ import {
   saveQuestionEdit,
   type QuestionEditRecord,
 } from "@/lib/question-edits";
+import { fillMissingChoices } from "@/lib/choice-prep";
 import { getRawQuestionText } from "@/lib/question-text";
 import {
   ensureFourOptionSlots,
@@ -234,8 +235,10 @@ export function MockExamPanel({
   >(() => loadQuestionEdits()[file.id] ?? {});
   const [preparingExam, setPreparingExam] = useState(false);
   const [prepFailed, setPrepFailed] = useState(false);
+  const [prepProgress, setPrepProgress] = useState({ completed: 0, total: 0 });
   const [prepRetryKey, setPrepRetryKey] = useState(0);
   const examPrepAttempted = useRef(false);
+  const questionEditsRef = useRef(questionEdits);
   const examQuestions = useMemo(
     () => buildExamQuestions(file, questions, questionEdits),
     [file, questionEdits, questions],
@@ -261,27 +264,34 @@ export function MockExamPanel({
   const selected = answers[currentQ] ?? null;
 
   useEffect(() => {
+    questionEditsRef.current = questionEdits;
+  }, [questionEdits]);
+
+  useEffect(() => {
     if (!file?.id || !questions.length || examPrepAttempted.current) return;
     if (examQuestions.length > 0) return;
 
-    const readiness = summarizeQuizReadiness(file, questions, questionEdits, getQuestionId);
+    const readiness = summarizeQuizReadiness(file, questions, questionEditsRef.current, getQuestionId);
     if (readiness.needsPrep === 0) return;
 
     examPrepAttempted.current = true;
     let cancelled = false;
+    let finishedPrep = false;
 
     async function prepareExamChoices() {
       setPreparingExam(true);
       setPrepFailed(false);
+      setPrepProgress({ completed: 0, total: readiness.needsPrep });
 
-      const nextEdits = { ...questionEdits };
+      const preparedEdits: Record<string, QuestionEditRecord> = {};
       let changed = false;
+      let completed = 0;
 
       for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
         if (cancelled) return;
         const item = questions[questionIndex]!;
         const itemId = getQuestionId(file, item, questionIndex);
-        const itemEdit = nextEdits[itemId];
+        const itemEdit = { ...questionEditsRef.current, ...preparedEdits }[itemId];
         if (!questionNeedsChoicePrep(item, itemEdit)) continue;
 
         const questionText = itemEdit?.questionText ?? getRawQuestionText(item);
@@ -289,40 +299,32 @@ export function MockExamPanel({
 
         const rawOptions = ensureFourOptionSlots(getEffectiveOptions(item, itemEdit));
         try {
-          const response = await fetch("/api/pdf/fix-grammar", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              mode: "fill-choices",
-              questionText,
-              options: rawOptions,
-            }),
-          });
-          const data = (await response.json()) as {
-            error?: string;
-            questionText?: string;
-            options?: Array<{ label: string; text: string }>;
-          };
-          if (!response.ok) continue;
-
+          const data = await fillMissingChoices(questionText, rawOptions);
           const merged = {
             ...itemEdit,
             questionText: data.questionText ?? questionText,
             options: ensureFourOptionSlots(data.options ?? rawOptions),
           };
-          nextEdits[itemId] = merged;
+          preparedEdits[itemId] = merged;
           saveQuestionEdit(file.id, itemId, merged);
           changed = true;
         } catch {
           // Keep trying other questions.
+        } finally {
+          completed += 1;
+          if (!cancelled) {
+            setPrepProgress({ completed, total: readiness.needsPrep });
+          }
         }
       }
 
       if (cancelled) return;
+      const nextEdits = { ...questionEditsRef.current, ...preparedEdits };
       if (changed) {
-        setQuestionEdits(nextEdits);
+        setQuestionEdits((current) => ({ ...current, ...preparedEdits }));
       }
       setPrepFailed(!filterValidQuestions(file, questions, nextEdits).length);
+      finishedPrep = true;
       setPreparingExam(false);
     }
 
@@ -330,8 +332,12 @@ export function MockExamPanel({
 
     return () => {
       cancelled = true;
+      if (!finishedPrep) {
+        examPrepAttempted.current = false;
+        setPreparingExam(false);
+      }
     };
-  }, [examQuestions.length, file, prepRetryKey, questionEdits, questions]);
+  }, [examQuestions.length, file, prepRetryKey, questions]);
 
   useEffect(() => {
     sessionChrome?.setChrome({ variant: "hidden" });
@@ -425,8 +431,18 @@ export function MockExamPanel({
 
   if (preparingExam) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-10 text-center text-sm text-slate-500">
-        Preparing exam choices…
+      <div className="mx-auto grid min-h-[55vh] max-w-2xl place-items-center px-4 py-10 text-center">
+        <div>
+          <div className="mx-auto size-9 animate-spin rounded-full border-2 border-slate-200 border-t-zinc-950" />
+          <p className="mt-4 text-sm font-semibold text-slate-700">
+            Preparing exam choices
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            {prepProgress.total > 0
+              ? `${prepProgress.completed} / ${prepProgress.total} questions checked`
+              : "Checking extracted questions"}
+          </p>
+        </div>
       </div>
     );
   }

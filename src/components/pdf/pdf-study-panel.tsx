@@ -757,6 +757,7 @@ type PdfStudyPanelProps = {
   onRecordAnswer: (questionId: string, answer: QuestionAnswer) => void;
   onExplain?: (question: PdfMcq) => void;
   onShowQuestionSource?: (question: PdfMcq) => void;
+  onShowSourcePage?: (pageNumber: number) => void;
   layout?: "embedded" | "full";
   returnHref?: string;
 };
@@ -771,6 +772,7 @@ export function PdfStudyPanel({
   onRecordAnswer,
   onExplain = () => {},
   onShowQuestionSource,
+  onShowSourcePage,
   layout = "embedded",
   returnHref = "/dashboard",
 }: PdfStudyPanelProps) {
@@ -804,6 +806,7 @@ export function PdfStudyPanel({
             file={file}
             onRecordAnswer={onRecordAnswer}
             onShowQuestionSource={onShowQuestionSource}
+            onShowSourcePage={onShowSourcePage}
             onToggleBookmark={onToggleBookmark}
             questionAnswers={questionAnswers}
             questions={questions}

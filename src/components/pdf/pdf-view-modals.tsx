@@ -139,7 +139,7 @@ export function SourceImageDialog({
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4 text-white">
           <div>
             <div className="text-sm font-semibold">
-              {questionNumber ? `Source for Question ${questionNumber}` : "Question source"}
+              {questionNumber ? `Source for Question ${questionNumber}` : "Source page"}
             </div>
             <div className="text-xs text-white/60">Page {pageNumber}</div>
           </div>
@@ -263,6 +263,12 @@ function QuestionSourceCanvas({
     // sourceRegionKey captures region value changes without object identity churn
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sourceRegionKey, pageNumber],
+  );
+  const hasHighlightTarget = Boolean(
+    normalizedRegion ||
+      questionText?.trim() ||
+      questionNumber ||
+      optionTexts?.some((option) => option.trim()),
   );
 
   const isConvertedPreview = useMemo(
@@ -429,6 +435,12 @@ function QuestionSourceCanvas({
           cacheSource: loaded.cacheSource,
         });
 
+        if (!hasHighlightTarget) {
+          setHighlight(null);
+          setHighlightUnconfirmed(false);
+          return;
+        }
+
         await resolveHighlightFromPage(null, loaded.width, loaded.height, loaded.cacheSource);
       } catch (renderError) {
         if (!cancelled) {
@@ -449,6 +461,7 @@ function QuestionSourceCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- telemetry helper reads latest cacheSourceRef
   }, [
     fileId,
+    hasHighlightTarget,
     isConvertedPreview,
     normalizedRegion,
     optionTextsKey,

@@ -124,6 +124,7 @@ export function SupportInbox() {
   }, [selectedThreadId, threads]);
 
   const selectedCategory = getCategoryConfig(category);
+  const SelectedCategoryIcon = selectedCategory.icon;
 
   async function updateThread(nextStatus: SupportStatus, event?: FormEvent) {
     event?.preventDefault();
@@ -298,7 +299,7 @@ export function SupportInbox() {
           <aside className="border-b border-white/10 lg:border-b-0 lg:border-r">
             <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-semibold text-zinc-300">
               <span className="inline-flex items-center gap-2">
-                <selectedCategory.icon className="size-4" />
+                <SelectedCategoryIcon className="size-4" />
                 {selectedCategory.label}
               </span>
               <span>{threads ? `${threads.length} threads` : "Loading"}</span>

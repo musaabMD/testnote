@@ -94,6 +94,86 @@ C. 4KHz`,
       [150, 151],
     );
   });
+
+  it("extracts unnumbered recall questions with plain option lines", () => {
+    const { result } = extractMcqsFromMistralOcrPages({
+      fileHash: "recall1",
+      fileName: "April Recall.pdf",
+      pages: [
+        {
+          index: 0,
+          markdown: `Dengue fever transmitted?
+Mosquito bite
+Droplet
+Body fluid
+Contaminated food and water
+
+21 year old male patient young on 2 antiHTN. BP is still high. Family history of death and stroke at young age. BMI 21. What test would you order to confirm the diagnosis?
+Renin angiotensin
+24 urine cortisol
+Plasma catecholamines
+Urine metanephrines
+
+Woman with cancer coming for preoperative assessment with low appetite and weight loss and asking about nutrition
+NGT
+Parenteral
+Oral supplement`,
+        },
+      ],
+    });
+
+    assert.equal(result.mcqs.length, 3);
+    assert.equal(result.mcqs[0]?.questionText, "Dengue fever transmitted?");
+    assert.deepEqual(
+      result.mcqs[0]?.options?.map((option) => option.text),
+      ["Mosquito bite", "Droplet", "Body fluid", "Contaminated food and water"],
+    );
+    assert.equal(
+      result.mcqs[1]?.options?.at(3)?.text,
+      "Urine metanephrines",
+    );
+    assert.equal(result.mcqs[2]?.options?.length, 3);
+  });
+
+  it("keeps a question when its choices continue on the next OCR page", () => {
+    const { result, sourceChunks } = extractMcqsFromMistralOcrPages({
+      fileHash: "split1",
+      fileName: "Split Recall.pdf",
+      pages: [
+        {
+          index: 0,
+          markdown: `Teenage girl sits on her ipad a lot and keeps comparing herself with others, she has low self esteem and anxiety,
+what's the most she could benefit from?
+Antidepressant
+Force her to leave social media
+Limit social media time
+Cognitive behavioral therapy
+
+Pt female came for birth control she had previous DVT, what contraception u give?`,
+        },
+        {
+          index: 1,
+          markdown: `PatchB- IUD
+OCP
+
+A patient underwent a dental procedure and subsequently develops jaundice and chills.
+Ultrasound reveals a 6 cm hypoechoic lesion in the liver. What is the most appropriate initial management?
+Oral antibiotics
+Percutaneous drainage`,
+        },
+      ],
+    });
+
+    assert.equal(result.mcqs.length, 3);
+    assert.match(result.mcqs[1]?.questionText ?? "", /previous DVT/);
+    assert.deepEqual(
+      result.mcqs[1]?.options?.map((option) => option.text),
+      ["PatchB- IUD", "OCP"],
+    );
+    assert.equal(result.mcqs[1]?.sourcePage, 1);
+    assert.match(sourceChunks[1]?.text ?? "", /PatchB- IUD\nOCP/);
+    assert.match(result.mcqs[2]?.questionText ?? "", /dental procedure/);
+  });
 });
 
 describe("source chunk batching", () => {

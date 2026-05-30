@@ -1,4 +1,4 @@
-const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com";
+const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com,mousab.r@me.com";
 
 export function isAdminClerkUserId(clerkUserId: string): boolean {
   const raw = process.env.ADMIN_CLERK_USER_IDS ?? "";

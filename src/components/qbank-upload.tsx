@@ -22,6 +22,7 @@ import {
   getUploadProgressDetail,
   getUploadProgressLabel,
   getUploadProgressPercent,
+  INLINE_UPLOAD_PROGRESS_OWNER_EVENT,
 } from "@/lib/upload-progress";
 import {
   useCallback,
@@ -311,6 +312,25 @@ export function QBankUpload({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [showAll]);
+
+  useEffect(() => {
+    const active = uploadedFiles.some((item) => !item.done && !item.error);
+    window.dispatchEvent(
+      new CustomEvent(INLINE_UPLOAD_PROGRESS_OWNER_EVENT, {
+        detail: { active },
+      }),
+    );
+  }, [uploadedFiles]);
+
+  useEffect(() => {
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent(INLINE_UPLOAD_PROGRESS_OWNER_EVENT, {
+          detail: { active: false },
+        }),
+      );
+    };
+  }, []);
 
   function pulseAcceptedState() {
     setFlash(true);

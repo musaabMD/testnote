@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 
-const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com";
+const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com,mousab.r@me.com";
 
 function configuredAdminEmails() {
   return (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL)

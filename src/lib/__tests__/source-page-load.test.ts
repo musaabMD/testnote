@@ -160,7 +160,44 @@ describe("loadQuestionSourcePage fallback", () => {
     assert.equal(fetchCount, 0);
   });
 
-  it("renders PDF.js first without asking server preview", async () => {
+  it("uses cached server preview before PDF.js rendering", async () => {
+    process.env.NEXT_PUBLIC_ENABLE_SERVER_PAGE_PREVIEW = "true";
+    let fetchCount = 0;
+    let renderCount = 0;
+    mockFetch((url) => {
+      if (url.includes("/api/pdf/page-preview")) {
+        fetchCount += 1;
+        return Response.json({
+          imageUrl: "data:image/webp;base64,server",
+          width: 612,
+          height: 792,
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    const result = await loadQuestionSourcePage({
+      fileId: "file-1",
+      pageNumber: 2,
+      source: { name: "sample.pdf", url: "blob:sample" },
+      previewUrl: "blob:sample",
+      renderPage: async () => {
+        renderCount += 1;
+        throw new Error("PDF.js should not render when server preview exists");
+      },
+    });
+
+    assert.deepEqual(result, {
+      imageUrl: "data:image/webp;base64,server",
+      width: 612,
+      height: 792,
+      cacheSource: "server",
+    });
+    assert.equal(fetchCount, 1);
+    assert.equal(renderCount, 0);
+  });
+
+  it("falls back to PDF.js when no cached preview exists", async () => {
     process.env.NEXT_PUBLIC_ENABLE_SERVER_PAGE_PREVIEW = "true";
     let fetchCount = 0;
     mockFetch((url) => {
@@ -187,41 +224,34 @@ describe("loadQuestionSourcePage fallback", () => {
     });
 
     assert.deepEqual(result, rendered);
-    assert.equal(fetchCount, 0);
+    assert.equal(fetchCount, 1);
   });
 
-  it("uses cached server preview only when PDF.js render fails", async () => {
+  it("falls back to PDF.js when the server preview request fails", async () => {
     process.env.NEXT_PUBLIC_ENABLE_SERVER_PAGE_PREVIEW = "true";
-    let fetchCount = 0;
     mockFetch((url) => {
       if (url.includes("/api/pdf/page-preview")) {
-        fetchCount += 1;
-        return Response.json({
-          imageUrl: "data:image/svg+xml;base64,server",
-          width: 612,
-          height: 792,
-        });
+        return new Response(null, { status: 500 });
       }
       return new Response(null, { status: 404 });
     });
+
+    const rendered = {
+      imageUrl: "data:image/jpeg;base64,fallback",
+      width: 612,
+      height: 792,
+      cacheSource: "pdfjs" as const,
+    };
 
     const result = await loadQuestionSourcePage({
       fileId: "file-1",
       pageNumber: 2,
       source: { name: "sample.pdf", url: "blob:sample" },
       previewUrl: "blob:sample",
-      renderPage: async () => {
-        throw new Error("render failed");
-      },
+      renderPage: async () => rendered,
     });
 
-    assert.deepEqual(result, {
-      imageUrl: "data:image/svg+xml;base64,server",
-      width: 612,
-      height: 792,
-      cacheSource: "server",
-    });
-    assert.equal(fetchCount, 1);
+    assert.deepEqual(result, rendered);
   });
 
   it("ignores question API payloads and renders the real PDF page", async () => {

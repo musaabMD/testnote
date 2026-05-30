@@ -4,6 +4,8 @@ import { classifyUsageError } from "@/lib/quota-errors";
 
 export const UPLOAD_PROGRESS_STORAGE_KEY = "drnote:upload-progress";
 export const UPLOAD_PROGRESS_UPDATED_EVENT = "drnote:upload-progress-updated";
+export const INLINE_UPLOAD_PROGRESS_OWNER_EVENT =
+  "drnote:inline-upload-progress-owner";
 export const FAILED_UPLOAD_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export type UploadProgressStatus =
@@ -112,6 +114,32 @@ export function getUploadProgressDetail(record: UploadProgressRecord) {
   }
 
   return pageText ? `${pageText} detected.` : "Preparing the upload receipt.";
+}
+
+export function shouldShowGlobalUploadProgress(
+  record: UploadProgressRecord,
+  context: {
+    activeFileId?: string | null;
+    activeJobId?: string | null;
+    inlineUploadOwnerActive?: boolean;
+    pathname: string;
+  },
+) {
+  if (record.status === "ready") return false;
+
+  if (record.status === "failed" && record.error) {
+    const kind = classifyUsageError(record.error).kind;
+    if (kind === "plan_quota" || kind === "billing_inactive") return false;
+  }
+
+  if (context.inlineUploadOwnerActive) return false;
+  if (context.pathname === "/dashboard") return false;
+  if (context.pathname !== "/dashboard/content") return true;
+  if (context.activeJobId && record.jobId === context.activeJobId) return false;
+  if (context.activeFileId && record.fileHash === context.activeFileId) {
+    return false;
+  }
+  return true;
 }
 
 function isUploadProgressRecord(value: unknown): value is UploadProgressRecord {

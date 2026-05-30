@@ -72,8 +72,8 @@ function isPlaceholderOption(text: string): boolean {
 }
 
 function questionChangedTooMuch(original: string, fixed: string): boolean {
-  const a = original.trim().toLowerCase().replace(/\s+/g, " ");
-  const b = fixed.trim().toLowerCase().replace(/\s+/g, " ");
+  const a = normalizeComparisonText(original);
+  const b = normalizeComparisonText(fixed);
   if (a === b) return false;
   const aWords = new Set(a.split(" ").filter(Boolean));
   const bWords = new Set(b.split(" ").filter(Boolean));
@@ -82,7 +82,47 @@ function questionChangedTooMuch(original: string, fixed: string): boolean {
     if (bWords.has(word)) shared += 1;
   }
   const overlap = aWords.size ? shared / aWords.size : 1;
+  const shortText = Math.max(aWords.size, bWords.size) <= 5 || Math.max(a.length, b.length) <= 40;
+  if (shortText && characterSimilarity(a, b) >= 0.72) {
+    return false;
+  }
   return overlap < 0.7;
+}
+
+function normalizeComparisonText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function characterSimilarity(a: string, b: string): number {
+  const maxLength = Math.max(a.length, b.length);
+  if (!maxLength) return 1;
+  return 1 - levenshteinDistance(a, b) / maxLength;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    for (let j = 0; j <= b.length; j += 1) {
+      previous[j] = current[j]!;
+    }
+  }
+
+  return previous[b.length]!;
 }
 
 function normalizeFixedItem(item: GrammarFixItem): GrammarFixResult {

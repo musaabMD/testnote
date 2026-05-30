@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   },
 };
 
-const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com";
+const DEFAULT_ADMIN_EMAIL = "mousab.r@gmail.com,mousab.r@me.com";
 
 function adminEmails() {
   return (process.env.ADMIN_EMAIL ?? DEFAULT_ADMIN_EMAIL)

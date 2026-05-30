@@ -10,14 +10,15 @@ import {
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resumePersistedExtractionJob } from "@/lib/process-pdf-upload";
-import { classifyUsageError } from "@/lib/quota-errors";
 import {
   FAILED_UPLOAD_RECORD_RETENTION_MS,
+  INLINE_UPLOAD_PROGRESS_OWNER_EVENT,
   getUploadProgressDetail,
   getUploadProgressLabel,
   getUploadProgressPercent,
   loadUploadProgressRecords,
   removeUploadProgressRecord,
+  shouldShowGlobalUploadProgress,
   UPLOAD_PROGRESS_UPDATED_EVENT,
   type UploadProgressRecord,
 } from "@/lib/upload-progress";
@@ -34,15 +35,10 @@ function canRecoverProcessingConflict(record: UploadProgressRecord) {
   );
 }
 
-function isUpgradeFailure(record: UploadProgressRecord) {
-  if (record.status !== "failed" || !record.error) return false;
-  const kind = classifyUsageError(record.error).kind;
-  return kind === "plan_quota" || kind === "billing_inactive";
-}
-
 export function UploadProgressToast() {
   const [records, setRecords] = useState<UploadProgressRecord[]>([]);
   const [currentSearch, setCurrentSearch] = useState("");
+  const [inlineUploadOwnerActive, setInlineUploadOwnerActive] = useState(false);
   const pathname = usePathname();
   const pollingRef = useRef<Set<string>>(new Set());
 
@@ -103,6 +99,24 @@ export function UploadProgressToast() {
     return () => window.removeEventListener("popstate", refreshLocation);
   }, [pathname]);
 
+  useEffect(() => {
+    const handleInlineOwner = (event: Event) => {
+      const customEvent = event as CustomEvent<{ active?: boolean }>;
+      setInlineUploadOwnerActive(Boolean(customEvent.detail?.active));
+    };
+
+    window.addEventListener(
+      INLINE_UPLOAD_PROGRESS_OWNER_EVENT,
+      handleInlineOwner,
+    );
+    return () => {
+      window.removeEventListener(
+        INLINE_UPLOAD_PROGRESS_OWNER_EVENT,
+        handleInlineOwner,
+      );
+    };
+  }, []);
+
   const visible = useMemo(
     () => {
       const params = new URLSearchParams(currentSearch);
@@ -110,18 +124,17 @@ export function UploadProgressToast() {
       const activeJobId = params.get("job");
 
       return records
-        .filter((record) => record.status !== "ready")
-        .filter((record) => !isUpgradeFailure(record))
-        .filter((record) => {
-          if (pathname === "/dashboard") return false;
-          if (pathname !== "/dashboard/content") return true;
-          if (activeJobId && record.jobId === activeJobId) return false;
-          if (activeFileId && record.fileHash === activeFileId) return false;
-          return true;
-        })
+        .filter((record) =>
+          shouldShowGlobalUploadProgress(record, {
+            activeFileId,
+            activeJobId,
+            inlineUploadOwnerActive,
+            pathname,
+          }),
+        )
         .slice(0, 2);
     },
-    [currentSearch, pathname, records],
+    [currentSearch, inlineUploadOwnerActive, pathname, records],
   );
 
   if (!visible.length) return null;

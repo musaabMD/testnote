@@ -2,7 +2,9 @@ import type { SourceChunk } from "@/lib/highlightable-source";
 import {
   hasAnswerKeySignal,
   hasQuestionIntent,
+  isOptionLine,
   normalizeLineForParsing,
+  parseLeadingQuestionNumber,
 } from "@/lib/mcq-line-patterns";
 import type { MistralOcrPage } from "@/lib/mistral-ocr.server";
 import type { PdfMcq, PdfMcqResult } from "@/lib/pdf-mcqs";
@@ -12,6 +14,7 @@ type OcrQuestionBlock = {
   pageNumber: number;
   questionNumber: number;
   text: string;
+  parser: "numbered" | "recall";
 };
 
 export function extractMcqsFromMistralOcrPages(args: {
@@ -19,9 +22,7 @@ export function extractMcqsFromMistralOcrPages(args: {
   fileHash: string;
   fileName: string;
 }): { result: PdfMcqResult; sourceChunks: SourceChunk[] } {
-  const blocks = args.pages.flatMap((page) =>
-    splitOcrPageIntoQuestionBlocks(pageText(page), page.index + 1),
-  );
+  const blocks = splitOcrPagesIntoQuestionBlocks(args.pages);
 
   const sourceChunks: SourceChunk[] = [];
   const mcqs: PdfMcq[] = [];
@@ -70,7 +71,10 @@ export function extractMcqsFromMistralOcrPages(args: {
       exactQuote: block.text.slice(0, 240),
       rawJson: {
         provider: "mistral-ocr",
-        extraction: "deterministic-numbered-question-parser",
+        extraction:
+          block.parser === "recall"
+            ? "deterministic-recall-question-parser"
+            : "deterministic-numbered-question-parser",
       },
     });
   }
@@ -92,19 +96,96 @@ function pageText(page: MistralOcrPage): string {
     .join("\n");
 }
 
+function splitOcrPagesIntoQuestionBlocks(pages: MistralOcrPage[]): OcrQuestionBlock[] {
+  const pageRecords = pages.map((page) => {
+    const pageNumber = page.index + 1;
+    const normalized = normalizeOcrText(pageText(page));
+    return {
+      pageNumber,
+      normalized,
+      blocks: splitOcrPageIntoQuestionBlocks(normalized, pageNumber),
+    };
+  });
+
+  for (let index = 0; index < pageRecords.length - 1; index += 1) {
+    const current = pageRecords[index]!;
+    const next = pageRecords[index + 1]!;
+    const lastBlock = current.blocks.at(-1);
+    if (!lastBlock || !blockCanContinueAcrossPage(lastBlock)) continue;
+
+    const continuationLines = leadingContinuationOptionLines(next.normalized);
+    if (continuationLines.length < 2) continue;
+
+    lastBlock.text = `${lastBlock.text}\n${continuationLines.join("\n")}`.trim();
+  }
+
+  return pageRecords.flatMap((page) => page.blocks);
+}
+
 function splitOcrPageIntoQuestionBlocks(text: string, pageNumber: number): OcrQuestionBlock[] {
   const normalized = normalizeOcrText(text);
   if (!normalized) return [];
 
+  const numberedBlocks = splitNumberedQuestionBlocks(normalized, pageNumber);
+  const recallBlocks = splitRecallQuestionBlocks(normalized, pageNumber);
+  const blocks =
+    recallBlocks.length >= numberedBlocks.length && recallBlocks.length > 0
+      ? recallBlocks
+      : [...numberedBlocks, ...recallBlocks];
+  const seen = new Set<string>();
+  return blocks.filter((block) => {
+    const key = questionDedupeKey(stripLeadingQuestionNumber(block.text), block.questionNumber);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function blockCanContinueAcrossPage(block: OcrQuestionBlock): boolean {
+  const body = stripLeadingQuestionNumber(block.text);
+  if (!hasQuestionIntent(body)) return false;
+  if (hasAnswerKeySignal(body)) return false;
+
+  const labeledOptions = parseOptions(body);
+  if (labeledOptions.length >= 4) return false;
+
+  const unlabeledOptions = parseUnlabeledOptions(body);
+  return unlabeledOptions.length < 4;
+}
+
+function leadingContinuationOptionLines(normalized: string): string[] {
+  const lines = normalized.split("\n").map(normalizeLineForParsing).filter(Boolean);
+  const continuation: string[] = [];
+  let sawContent = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (!sawContent && isIgnorableRecallLine(line)) continue;
+    sawContent = true;
+
+    if (looksLikeRecallQuestionStart(lines, index)) break;
+    if (!isOptionLine(line) && !isLikelyUnlabeledOption(line)) break;
+
+    continuation.push(line);
+    if (continuation.length >= 6) break;
+  }
+
+  return continuation;
+}
+
+function splitNumberedQuestionBlocks(
+  normalized: string,
+  pageNumber: number,
+): OcrQuestionBlock[] {
   const markers = Array.from(
     normalized.matchAll(
-      /(?:^|\n)\s*(?:[-*]\s*)?(?:Q(?:uestion)?\.?\s*)?(\d{1,4})\s*[\.\):]\s*/gi,
+      /(?:^|\n)\s*(?:[-*]\s*)?(?:Q(?:uestion)?\.?\s*)?(\d{1,4})\s*[\.\):\-]\s*/gi,
     ),
   );
   if (!markers.length) return [];
 
   return markers
-    .map((marker, index) => {
+    .map((marker, index): OcrQuestionBlock | null => {
       const start = marker.index ?? 0;
       const next = markers[index + 1];
       const end = next?.index ?? normalized.length;
@@ -113,9 +194,64 @@ function splitOcrPageIntoQuestionBlocks(text: string, pageNumber: number): OcrQu
       if (!Number.isFinite(questionNumber) || !blockLooksExtractable(blockText)) {
         return null;
       }
-      return { pageNumber, questionNumber, text: blockText };
+      return { pageNumber, questionNumber, text: blockText, parser: "numbered" };
     })
-    .filter((block): block is OcrQuestionBlock => Boolean(block));
+    .filter((block): block is OcrQuestionBlock => block !== null);
+}
+
+function splitRecallQuestionBlocks(
+  normalized: string,
+  pageNumber: number,
+): OcrQuestionBlock[] {
+  const lines = normalized.split("\n").map(normalizeLineForParsing).filter(Boolean);
+  const starts: number[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (looksLikeRecallQuestionStart(lines, index)) {
+      const previousStart = starts.at(-1);
+      if (
+        previousStart !== undefined &&
+        shouldContinuePreviousRecallStart(lines, previousStart, index)
+      ) {
+        continue;
+      }
+      starts.push(index);
+    }
+  }
+
+  return starts
+    .map((startIndex, index): OcrQuestionBlock | null => {
+      const nextStart = starts[index + 1] ?? lines.length;
+      const blockLines = lines.slice(startIndex, nextStart);
+      const text = blockLines.join("\n").trim();
+      if (!blockLooksExtractable(text)) return null;
+      return {
+        pageNumber,
+        questionNumber: parseLeadingQuestionNumber(blockLines[0]!) ?? index + 1,
+        text,
+        parser: "recall",
+      };
+    })
+    .filter((block): block is OcrQuestionBlock => block !== null);
+}
+
+function shouldContinuePreviousRecallStart(
+  lines: string[],
+  previousStart: number,
+  candidateIndex: number,
+): boolean {
+  if (candidateIndex - previousStart > 3) return false;
+
+  const between = lines.slice(previousStart + 1, candidateIndex);
+  if (between.some((line) => isOptionLine(line) || isLikelyUnlabeledOption(line))) {
+    return false;
+  }
+
+  const previousLine = lines[previousStart]!;
+  return looksLikeClinicalQuestionLead(
+    previousLine,
+    lines.slice(previousStart + 1, candidateIndex + 4),
+  );
 }
 
 function normalizeOcrText(text: string): string {
@@ -135,7 +271,7 @@ function normalizeOcrText(text: string): string {
 
   return lines
     .join("\n")
-    .replace(/([^\n])\s+((?:Q(?:uestion)?\.?\s*)?\d{1,4}\s*[\.\):]\s+)/gi, "$1\n$2")
+    .replace(/([.!?])\s+((?:Q(?:uestion)?\.?\s*)?\d{1,4}\s*[\.\):]\s+)/gi, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -146,16 +282,91 @@ function blockLooksExtractable(text: string): boolean {
   if (body.length < 2) return false;
   if (hasQuestionIntent(body) || hasAnswerKeySignal(body)) return true;
   if (parseOptions(body).length > 0) return true;
+  if (parseUnlabeledOptions(body).length >= 2) return true;
   return /\b(?:scenario|case|patient|worker|pregnant|child|woman|man|screening|diagnosis|management|treatment|prevention|prophylaxis|vaccine|risk|bias|regression|survival|statin|htn|hiv|dengue|cholera|rabies|tb|tuberculosis|malaria|hepatitis)\b/i.test(
     body,
   );
 }
 
+function looksLikeRecallQuestionStart(lines: string[], index: number): boolean {
+  const line = lines[index]!;
+  if (isIgnorableRecallLine(line)) return false;
+  if (isOptionLine(line)) return false;
+  if (looksLikeClinicalQuestionLead(line, lines.slice(index + 1, index + 7))) return true;
+  if (isLikelyUnlabeledOption(line)) return false;
+
+  const questionNumber = parseLeadingQuestionNumber(line);
+  if (questionNumber !== null && blockLooksExtractable(line)) return true;
+  if (hasQuestionIntent(line)) return true;
+
+  const nextLines = lines.slice(index + 1, index + 7);
+  const nextOptionCount = nextLines.filter(isLikelyUnlabeledOption).length;
+  if (nextOptionCount < 2) return false;
+
+  return /\b(?:patient|pt|woman|man|male|female|boy|girl|child|newborn|neonate|infant|pregnant|pregg|worker|doctor|nurse|history|present|presents|came|coming|with|diagnosed|cancer|trauma|fever|pain|syndrome|assessment|screening|transmitted|responsible|expected|initial|next|best|most|asking)\b/i.test(
+    line,
+  );
+}
+
+function looksLikeClinicalQuestionLead(line: string, nextLines: string[]): boolean {
+  const normalized = normalizeLineForParsing(line);
+  if (normalized.split(/\s+/).length < 6) return false;
+  if (
+    !/\b(?:patient|pt|woman|man|male|female|boy|girl|child|newborn|neonate|infant|pregnant|worker|doctor|nurse|underwent|develops|reveals|history|presents|came|coming|diagnosed|trauma|fever|pain|jaundice|chills)\b/i.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+
+  const lookaheadText = nextLines.join(" ");
+  if (hasQuestionIntent(`${normalized} ${lookaheadText}`)) return true;
+  return nextLines.slice(0, 6).filter(isLikelyUnlabeledOption).length >= 2;
+}
+
+function isIgnorableRecallLine(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  if (!normalized) return true;
+  if (hasAnswerKeySignal(normalized)) return true;
+  if (/^(?:page|slide)\s+\d+$/i.test(normalized)) return true;
+  if (
+    /^(?:#\s*)?(?:april|may|june|july|august|september|october|november|december)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(?:tried to remember|the missing questions|wish you|good luck|telegram|alhomrani:)/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isLikelyUnlabeledOption(text: string): boolean {
+  const normalized = normalizeLineForParsing(text);
+  if (!normalized || normalized.length > 90) return false;
+  if (isOptionLine(normalized)) return false;
+  if (hasQuestionIntent(normalized)) return false;
+  if (/^(?:and|or|but)\s+(?:another|just|the)\b/i.test(normalized)) return true;
+  if (/^(?:less than|more than|high|low|normal|decreased|increased)\b/i.test(normalized)) {
+    return true;
+  }
+  if (/^[A-Za-z0-9][A-Za-z0-9%/.,+\-\s()]{1,88}$/.test(normalized)) return true;
+  return /[\u0600-\u06ff]/.test(normalized) && normalized.length <= 90;
+}
+
 function parseQuestionBlock(block: OcrQuestionBlock): PdfMcq | null {
   const withoutNumber = stripLeadingQuestionNumber(block.text);
-  const options = parseOptions(withoutNumber);
-  const optionStart = firstOptionIndex(withoutNumber);
-  const stemRaw = optionStart >= 0 ? withoutNumber.slice(0, optionStart) : withoutNumber;
+  const labeledOptions = parseOptions(withoutNumber);
+  const options = labeledOptions.length ? labeledOptions : parseUnlabeledOptions(withoutNumber);
+  const optionStart = labeledOptions.length ? firstOptionIndex(withoutNumber) : -1;
+  const stemRaw = optionStart >= 0
+    ? withoutNumber.slice(0, optionStart)
+    : stemFromUnlabeledBlock(withoutNumber);
   const questionText = formatQuestionText(cleanStem(stemRaw));
   if (!questionText) return null;
 
@@ -214,6 +425,49 @@ function parseOptions(text: string): Array<{ label: string; text: string }> {
       };
     })
     .filter((option): option is { label: string; text: string } => Boolean(option));
+}
+
+function parseUnlabeledOptions(text: string): Array<{ label: string; text: string }> {
+  const lines = text.split("\n").map(normalizeLineForParsing).filter(Boolean);
+  const optionStart = firstUnlabeledOptionLineIndex(lines);
+  if (optionStart < 0) return [];
+
+  const options: Array<{ label: string; text: string }> = [];
+  for (let index = optionStart; index < lines.length && options.length < 5; index += 1) {
+    const line = stripCorrectMarker(lines[index]!);
+    if (hasAnswerKeySignal(line)) break;
+    if (!isLikelyUnlabeledOption(line)) continue;
+    options.push({
+      label: String.fromCharCode(65 + options.length),
+      text: line,
+    });
+  }
+
+  return options;
+}
+
+function firstUnlabeledOptionLineIndex(lines: string[]): number {
+  const questionMarkIndex = lines.findIndex((line) => /\?/.test(line));
+  if (questionMarkIndex >= 0) {
+    const optionStart = questionMarkIndex + 1;
+    const optionCount = lines.slice(optionStart, optionStart + 6).filter(isLikelyUnlabeledOption)
+      .length;
+    return optionCount >= 2 ? optionStart : -1;
+  }
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const optionCount = lines.slice(index, index + 6).filter(isLikelyUnlabeledOption).length;
+    if (optionCount >= 2) return index;
+  }
+
+  return -1;
+}
+
+function stemFromUnlabeledBlock(text: string): string {
+  const lines = text.split("\n").map(normalizeLineForParsing).filter(Boolean);
+  const optionStart = firstUnlabeledOptionLineIndex(lines);
+  if (optionStart < 0) return text;
+  return lines.slice(0, optionStart).join(" ");
 }
 
 function firstOptionIndex(text: string): number {

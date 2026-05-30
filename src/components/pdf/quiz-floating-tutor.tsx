@@ -16,8 +16,10 @@ import { ChevronDown, MessageSquare, Send, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function QuizFloatingTutor({
+  explainRequestId = 0,
   question,
 }: {
+  explainRequestId?: number;
   question: PdfMcq;
 }) {
   const [open, setOpen] = useState(false);
@@ -31,6 +33,7 @@ export function QuizFloatingTutor({
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const autoExplainRef = useRef(false);
+  const handledExplainRequestRef = useRef(0);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
@@ -77,6 +80,19 @@ export function QuizFloatingTutor({
       setIsLoading(false);
     }
   }, [isLoading, messages, question]);
+
+  useEffect(() => {
+    if (!explainRequestId || handledExplainRequestRef.current === explainRequestId) return;
+
+    handledExplainRequestRef.current = explainRequestId;
+    autoExplainRef.current = true;
+    setOpen(true);
+
+    const timeout = window.setTimeout(() => {
+      void sendPrompt(QUIZ_AUTO_EXPLAIN_PROMPT);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [explainRequestId, sendPrompt]);
 
   useEffect(() => {
     if (!open || autoExplainRef.current) return;

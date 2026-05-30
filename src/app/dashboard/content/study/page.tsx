@@ -173,6 +173,31 @@ function PdfStudyPageContent() {
       setSourcePreviewError("");
 
       const basePreview = getSourcePreview(file.source);
+      const questionId =
+        question.questionId ??
+        `${file.id}:q:${question.questionNumber ?? question.sourceChunkIds?.[0] ?? "unknown"}`;
+      const pageNumber = question.sourcePage ?? question.sourceRegion?.pageNumber ?? 1;
+      const sourceRegion = normalizeSourceRegion(
+        question.sourceRegion as Parameters<typeof normalizeSourceRegion>[0],
+        pageNumber,
+      );
+      const optimisticPreview: SourcePreview = {
+        fileId: file.id,
+        questionId,
+        source: file.source,
+        previewUrl: basePreview.previewUrl ?? file.source.previewUrl ?? file.source.url,
+        previewMimeType: basePreview.previewMimeType ?? file.source.previewMimeType,
+        pageNumber,
+        questionText: getRawQuestionText(question) || getQuestionText(question),
+        questionNumber: question.questionNumber,
+        optionTexts: getOptions(question).map((option) => option.text),
+        sourceChunkIds: question.sourceChunkIds,
+        sourceRegion,
+        sourceChunks: file.sourceChunks,
+      };
+
+      setSourcePreview(optimisticPreview);
+
       const resolved = await resolveSourceFileForViewing(file.id, file.source, { convex });
       if (!resolved) {
         setSourcePreviewError(
@@ -181,27 +206,48 @@ function PdfStudyPageContent() {
         return;
       }
 
-      const questionId =
-        question.questionId ??
-        `${file.id}:q:${question.questionNumber ?? question.sourceChunkIds?.[0] ?? "unknown"}`;
-
-      setSourcePreview({
-        fileId: file.id,
-        questionId,
+      setSourcePreview((current) => current?.questionId === questionId ? {
+        ...optimisticPreview,
         source: resolved.source,
         previewUrl: resolved.url,
-        previewMimeType: basePreview.previewMimeType,
-        pageNumber: question.sourcePage ?? question.sourceRegion?.pageNumber ?? 1,
-        questionText: getRawQuestionText(question) || getQuestionText(question),
-        questionNumber: question.questionNumber,
-        optionTexts: getOptions(question).map((option) => option.text),
-        sourceChunkIds: question.sourceChunkIds,
-        sourceRegion: normalizeSourceRegion(
-          question.sourceRegion as Parameters<typeof normalizeSourceRegion>[0],
-          question.sourcePage ?? question.sourceRegion?.pageNumber ?? 1,
-        ),
+      } : current);
+    },
+    [file],
+  );
+
+  const openSourcePage = useCallback(
+    async (pageNumber: number) => {
+      if (!file) return;
+      setSourcePreviewError("");
+
+      const basePreview = getSourcePreview(file.source);
+      const previewId = `${file.id}:page:${pageNumber}`;
+      const optimisticPreview: SourcePreview = {
+        fileId: file.id,
+        questionId: previewId,
+        source: file.source,
+        previewUrl: basePreview.previewUrl ?? file.source.previewUrl ?? file.source.url,
+        previewMimeType: basePreview.previewMimeType ?? file.source.previewMimeType,
+        pageNumber,
         sourceChunks: file.sourceChunks,
-      });
+      };
+
+      setSourcePreview(optimisticPreview);
+
+      const resolved = await resolveSourceFileForViewing(file.id, file.source, { convex });
+      if (!resolved) {
+        setSourcePreviewError(
+          "Source file is not available. Re-upload the file to view pages.",
+        );
+        return;
+      }
+
+      setSourcePreview((current) => current?.questionId === previewId ? {
+        ...optimisticPreview,
+        source: resolved.source,
+        previewUrl: resolved.url,
+        previewMimeType: resolved.source.previewMimeType ?? optimisticPreview.previewMimeType,
+      } : current);
     },
     [file],
   );
@@ -266,6 +312,9 @@ function PdfStudyPageContent() {
               onRecordAnswer={recordAnswer}
               onShowQuestionSource={(question) => {
                 void openQuestionSource(question);
+              }}
+              onShowSourcePage={(pageNumber) => {
+                void openSourcePage(pageNumber);
               }}
               onToggleBookmark={toggleQuestionBookmark}
               questionAnswers={quizAnswers[file.id] ?? {}}

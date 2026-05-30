@@ -20,6 +20,7 @@ function getProxyClientMaxBodySize(): ProxyClientMaxBodySize {
 const proxyClientMaxBodySize = getProxyClientMaxBodySize();
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   experimental: {
     proxyClientMaxBodySize,
   },

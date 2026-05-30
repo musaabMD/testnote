@@ -7,6 +7,7 @@ import {
   getUploadProgressPercent,
   loadUploadProgressRecords,
   patchUploadProgressRecord,
+  shouldShowGlobalUploadProgress,
   upsertUploadProgressRecord,
   UPLOAD_PROGRESS_STORAGE_KEY,
 } from "../upload-progress.ts";
@@ -147,5 +148,32 @@ describe("upload progress", () => {
     );
 
     assert.deepEqual(loadUploadProgressRecords(), []);
+  });
+
+  it("suppresses the global toast while an inline uploader owns progress", () => {
+    const now = Date.now();
+    const record = {
+      id: "upload-5",
+      fileName: "inline.pdf",
+      fileSize: 284_000,
+      status: "uploading" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    assert.equal(
+      shouldShowGlobalUploadProgress(record, {
+        inlineUploadOwnerActive: true,
+        pathname: "/",
+      }),
+      false,
+    );
+    assert.equal(
+      shouldShowGlobalUploadProgress(record, {
+        inlineUploadOwnerActive: false,
+        pathname: "/features",
+      }),
+      true,
+    );
   });
 });

@@ -7,6 +7,11 @@ import {
 } from "@/components/pdf/pdf-study-panel";
 import type { PdfFileQueueItem, PdfMcq } from "@/lib/pdf-mcqs";
 import { cleanExplanationText } from "@/lib/question-text";
+import {
+  getTrustedAnswerVerification,
+  isOcrMissingAnswerNote,
+  type TrustedAnswerVerification,
+} from "@/lib/trusted-answer-verification";
 
 export type ChoiceExplanation = {
   label: string;
@@ -16,7 +21,7 @@ export type ChoiceExplanation = {
 };
 
 export function hasUsableExplanationNotes(notes: string[]): boolean {
-  return notes.map(cleanExplanationText).filter(Boolean).length > 0;
+  return getCleanUsableNotes(notes).length > 0;
 }
 
 function takeFirstSentences(text: string, maxSentences = 2, maxChars = 220): string {
@@ -59,7 +64,7 @@ export function getShortQuizFeedback(
     return takeFirstSentences(correctChoice.reason);
   }
 
-  const cleanedNotes = notes.map(cleanExplanationText).filter(Boolean);
+  const cleanedNotes = getCleanUsableNotes(notes);
   if (cleanedNotes[0]) {
     return takeFirstSentences(cleanedNotes[0]);
   }
@@ -76,7 +81,7 @@ export function buildChoiceExplanations(
   correctAnswer: string,
   notes: string[],
 ): ChoiceExplanation[] {
-  const cleanedNotes = notes.map(cleanExplanationText).filter(Boolean);
+  const cleanedNotes = getCleanUsableNotes(notes);
   const generalNote = cleanedNotes[0] ?? "";
 
   return options.map((option) => {
@@ -118,7 +123,7 @@ export function formatChoiceBreakdownMarkdown(
   correctAnswer: string,
   notes: string[],
 ): string {
-  const cleanedNotes = notes.map(cleanExplanationText).filter(Boolean);
+  const cleanedNotes = getCleanUsableNotes(notes);
   if (!cleanedNotes.length) return "";
 
   const items = buildChoiceExplanations(options, correctAnswer, cleanedNotes);
@@ -144,10 +149,44 @@ export function formatChoiceBreakdownMarkdown(
     .join("\n");
 }
 
+function formatTrustedVerificationMarkdown(
+  trustedVerification: TrustedAnswerVerification,
+): string {
+  const bullets = trustedVerification.choiceExplanations
+    .map((item) => {
+      const icon = item.isCorrect ? "✅" : "❌";
+      return `${icon} **${item.label}. ${item.text}** — ${item.reason}`;
+    })
+    .join("\n");
+
+  return [
+    `Verified answer: **${trustedVerification.answer}**`,
+    trustedVerification.explanation,
+    "",
+    bullets,
+    "",
+    `Reference: ${trustedVerification.referenceLabel}`,
+    trustedVerification.referenceUrl,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function getCleanUsableNotes(notes: string[]): string[] {
+  return notes
+    .map(cleanExplanationText)
+    .filter((note) => note && !isOcrMissingAnswerNote(note));
+}
+
 export function buildQuizWelcomeMessage(question: PdfMcq): string {
   const notes = getNotes(question).map(cleanExplanationText).filter(Boolean);
   const options = getOptions(question);
   const correctAnswer = getCorrectAnswer(question);
+  const trustedVerification = getTrustedAnswerVerification(question, options);
+
+  if (trustedVerification) {
+    return formatTrustedVerificationMarkdown(trustedVerification);
+  }
 
   if (hasUsableExplanationNotes(notes) && options.length) {
     const fromNotes = formatChoiceBreakdownMarkdown(
@@ -190,10 +229,12 @@ export function buildQuizAssistantInstructions(question: PdfMcq): string {
   const notes = getNotes(question).map(cleanExplanationText).filter(Boolean).join("\n");
   const answer = getCorrectAnswer(question);
   const hasNotes = hasUsableExplanationNotes(getNotes(question));
+  const trustedVerification = getTrustedAnswerVerification(question, getOptions(question));
 
   return [
     "You are a medical study tutor helping a student understand one multiple-choice question.",
     "Explain every choice with real clinical reasoning — never use generic filler like 'matches the documented answer' or 'is preferred in this scenario' without explaining why.",
+    "When source notes are missing or weak, do not cite Wikipedia. Use recognized textbooks, clinical guidelines, or official health authority sources, and include the reference plus a short quote when giving a verified factual answer.",
     "Use this structure:",
     "1. One-sentence clinical takeaway for the stem.",
     "2. 'Here's the breakdown:' then a bullet for each option with ✅ or ❌.",
@@ -208,6 +249,14 @@ export function buildQuizAssistantInstructions(question: PdfMcq): string {
     `Question: ${getQuestionText(question)}`,
     options ? `Choices:\n${options}` : null,
     answer ? `Documented correct answer from file: ${answer}` : "No answer key was extracted from the file.",
+    trustedVerification
+      ? `Trusted verification:\nAnswer: ${trustedVerification.answer}\nChoice explanations:\n${trustedVerification.choiceExplanations
+          .map(
+            (item) =>
+              `${item.isCorrect ? "Correct" : "Incorrect"} ${item.label}. ${item.text}: ${item.reason}`,
+          )
+          .join("\n")}\nReference: ${trustedVerification.referenceLabel}\nURL: ${trustedVerification.referenceUrl}\nQuote: ${trustedVerification.quote}\nUse this source when it conflicts with an OCR-only answer key.`
+      : null,
     notes ? `Source notes:\n${notes}` : null,
   ]
     .filter(Boolean)
