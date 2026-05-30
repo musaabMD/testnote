@@ -37,7 +37,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -68,6 +68,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { saveQuizSession } from "@/lib/quiz-sessions";
+import {
+  EXTRACTION_MODE_LABELS,
+  loadPdfQuizSettings,
+  savePdfQuizSettings,
+  type ExtractionMode,
+  type PdfQuizSettings,
+} from "@/lib/quiz-settings";
 import { buildFileAskInstructions } from "@/lib/quiz-tutor-prompt";
 import { convex } from "@/lib/convex-client";
 import {
@@ -232,6 +239,21 @@ export function fileToolHref(fileId: string, tool: FileToolMode) {
   return `/dashboard/content/${tool}?file=${encodeURIComponent(fileId)}`;
 }
 
+type StudyPickerTab = {
+  id: string;
+  label: string;
+  icon: typeof Download;
+  text: string;
+  iconBg: string;
+  tileBg: string;
+  href: string;
+  kind: "quiz" | "exam" | "flashcards" | "review" | "study" | "tool";
+  defaultCount?: "all" | "10" | "25";
+  defaultReviewFilter?: ReviewFilter;
+  defaultShowAnswers?: PdfQuizSettings["showAnswers"];
+  defaultShuffle?: boolean;
+};
+
 export function StudyModePicker({
   fileId,
   preview = false,
@@ -239,6 +261,25 @@ export function StudyModePicker({
   fileId: string;
   preview?: boolean;
 }) {
+  const router = useRouter();
+  const [pendingTab, setPendingTab] = useState<StudyPickerTab | null>(null);
+  const [questionCount, setQuestionCount] = useState<"all" | "10" | "25">("all");
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [shuffleCards, setShuffleCards] = useState(false);
+  const [timerEnabled, setTimerEnabled] = useState(
+    () => loadPdfQuizSettings().timerEnabled,
+  );
+  const [showAnswers, setShowAnswers] = useState<PdfQuizSettings["showAnswers"]>(
+    () => loadPdfQuizSettings().showAnswers,
+  );
+  const [submitMode, setSubmitMode] = useState<PdfQuizSettings["submitMode"]>(
+    () => loadPdfQuizSettings().submitMode,
+  );
+  const [allowEdit, setAllowEdit] = useState(() => loadPdfQuizSettings().allowEdit);
+  const [extractionMode, setExtractionMode] = useState<ExtractionMode>(
+    () => loadPdfQuizSettings().extractionMode,
+  );
+
   function studyActionHref(mode: StudyMode, params?: Record<string, string>) {
     const search = new URLSearchParams({
       file: fileId,
@@ -248,201 +289,461 @@ export function StudyModePicker({
     return `/dashboard/content/study?${search.toString()}`;
   }
 
-  const allTabs = [
+  function openCustomization(tab: StudyPickerTab) {
+    const settings = loadPdfQuizSettings();
+    setQuestionCount(tab.defaultCount ?? "all");
+    setReviewFilter(tab.defaultReviewFilter ?? "all");
+    setShuffleCards(Boolean(tab.defaultShuffle));
+    setTimerEnabled(settings.timerEnabled);
+    setShowAnswers(tab.defaultShowAnswers ?? settings.showAnswers);
+    setSubmitMode(settings.submitMode);
+    setAllowEdit(settings.allowEdit);
+    setExtractionMode(settings.extractionMode);
+    setPendingTab(tab);
+  }
+
+  function buildCustomizedHref(tab: StudyPickerTab) {
+    const url = new URL(tab.href, window.location.origin);
+
+    if (tab.kind === "quiz" || tab.kind === "exam") {
+      if (questionCount !== "all") {
+        url.searchParams.set("count", questionCount);
+        url.searchParams.delete("preset");
+      }
+      if (tab.kind === "quiz") {
+        url.searchParams.delete("customize");
+      }
+    }
+
+    if (tab.kind === "flashcards") {
+      url.searchParams.set("start", "1");
+      if (shuffleCards) url.searchParams.set("shuffle", "1");
+      else url.searchParams.delete("shuffle");
+      if (questionCount !== "all") url.searchParams.set("count", questionCount);
+      else url.searchParams.delete("count");
+    }
+
+    if (tab.kind === "review") {
+      url.searchParams.set("filter", reviewFilter);
+      if (questionCount !== "all") url.searchParams.set("count", questionCount);
+      else url.searchParams.delete("count");
+    }
+
+    return `${url.pathname}${url.search}`;
+  }
+
+  function startPendingAction() {
+    if (!pendingTab) return;
+
+    if (pendingTab.kind === "quiz") {
+      savePdfQuizSettings({
+        ...loadPdfQuizSettings(),
+        timerEnabled,
+        showAnswers,
+        submitMode,
+        allowEdit,
+        extractionMode,
+      });
+    }
+
+    router.push(buildCustomizedHref(pendingTab));
+  }
+
+  const allTabs: StudyPickerTab[] = [
     {
-      id: "customize-quiz" as const,
+      id: "customize-quiz",
       label: "Customize Quiz",
       icon: SlidersHorizontal,
-      bg: "bg-sky-50",
-      border: "border-sky-200",
       text: "text-sky-700",
       iconBg: "bg-sky-100",
+      tileBg: "border-sky-100 bg-gradient-to-br from-sky-50 to-white",
       href: studyActionHref("quiz", { customize: "1" }),
+      kind: "quiz",
     },
     {
-      id: "quick-10" as const,
-      label: "Quick 10",
-      icon: Play,
-      bg: "bg-cyan-50",
-      border: "border-cyan-200",
-      text: "text-cyan-700",
-      iconBg: "bg-cyan-100",
-      href: studyActionHref("quiz", { preset: "quick-10" }),
-    },
-    {
-      id: "timed" as const,
-      label: "Timed",
-      icon: Clock,
-      bg: "bg-amber-50",
-      border: "border-amber-200",
+      id: "mock-exam",
+      label: "Mock Exam",
+      icon: Trophy,
       text: "text-amber-700",
       iconBg: "bg-amber-100",
+      tileBg: "border-yellow-100 bg-gradient-to-br from-yellow-50 to-white",
       href: studyActionHref("exam", { preset: "timed" }),
+      kind: "exam",
+      defaultShowAnswers: "atEnd",
     },
     {
-      id: "customize-flashcards" as const,
-      label: "Customize Flashcards",
-      icon: SlidersHorizontal,
-      bg: "bg-violet-50",
-      border: "border-violet-200",
-      text: "text-violet-700",
-      iconBg: "bg-violet-100",
-      href: studyActionHref("flashcards", { customize: "1" }),
-    },
-    {
-      id: "flashcards" as const,
+      id: "flashcards",
       label: "Flashcards",
       icon: Layers,
-      bg: "bg-violet-50",
-      border: "border-violet-200",
       text: "text-violet-700",
       iconBg: "bg-violet-100",
+      tileBg: "border-indigo-100 bg-gradient-to-br from-indigo-50 to-white",
       href: studyActionHref("flashcards"),
+      kind: "flashcards",
     },
     {
-      id: "review-all" as const,
-      label: "Review All",
+      id: "review-all",
+      label: "Review",
       icon: List,
-      bg: "bg-emerald-50",
-      border: "border-emerald-200",
       text: "text-emerald-700",
       iconBg: "bg-emerald-100",
+      tileBg: "border-emerald-100 bg-gradient-to-br from-emerald-50 to-white",
       href: studyActionHref("review", { filter: "all" }),
+      kind: "review",
+      defaultReviewFilter: "all",
     },
     {
-      id: "review-incorrect" as const,
-      label: "Review Incorrect",
-      icon: XCircle,
-      bg: "bg-red-50",
-      border: "border-red-200",
-      text: "text-red-700",
-      iconBg: "bg-red-100",
-      href: studyActionHref("review", { filter: "incorrect" }),
-    },
-    {
-      id: "review-flagged" as const,
-      label: "Review Flagged",
-      icon: Flag,
-      bg: "bg-orange-50",
-      border: "border-orange-200",
-      text: "text-orange-700",
-      iconBg: "bg-orange-100",
-      href: studyActionHref("review", { filter: "flagged" }),
-    },
-    {
-      id: "extract-mcqs" as const,
+      id: "extract-mcqs",
       label: "Extract MCQs",
       icon: CheckSquare,
-      bg: "bg-blue-50",
-      border: "border-blue-200",
       text: "text-blue-700",
       iconBg: "bg-blue-100",
+      tileBg: "border-blue-100 bg-gradient-to-br from-blue-50 to-white",
       href: studyActionHref("quiz", { extract: "mcqs" }),
+      kind: "quiz",
     },
     {
-      id: "summary" as const,
+      id: "summary",
       label: "Summary",
       icon: Sparkles,
-      bg: "bg-teal-50",
-      border: "border-teal-200",
       text: "text-teal-700",
       iconBg: "bg-teal-100",
+      tileBg: "border-teal-100 bg-gradient-to-br from-teal-50 to-white",
       href: studyModeHref(fileId, "summary"),
+      kind: "study",
     },
     {
-      id: "ask" as const,
+      id: "ask",
       label: "Ask",
       icon: MessageSquare,
-      bg: "bg-rose-50",
-      border: "border-rose-200",
       text: "text-rose-700",
       iconBg: "bg-rose-100",
+      tileBg: "border-rose-100 bg-gradient-to-br from-rose-50 to-white",
       href: studyModeHref(fileId, "ask"),
+      kind: "study",
     },
     {
-      id: "mind-map" as const,
+      id: "mind-map",
       label: "Mind Map",
       icon: ScanSearch,
-      bg: "bg-lime-50",
-      border: "border-lime-200",
       text: "text-lime-700",
       iconBg: "bg-lime-100",
+      tileBg: "border-lime-100 bg-gradient-to-br from-lime-50 to-white",
       href: fileToolHref(fileId, "mind-map"),
+      kind: "tool",
     },
     {
-      id: "download" as const,
+      id: "download",
       label: "Download",
       icon: Download,
-      bg: "bg-orange-50",
-      border: "border-orange-200",
       text: "text-orange-700",
       iconBg: "bg-orange-100",
+      tileBg: "border-orange-100 bg-gradient-to-br from-orange-50 to-white",
       href: fileToolHref(fileId, "download"),
+      kind: "tool",
     },
     {
-      id: "library" as const,
+      id: "library",
       label: "Library",
       icon: Library,
-      bg: "bg-indigo-50",
-      border: "border-indigo-200",
       text: "text-indigo-700",
       iconBg: "bg-indigo-100",
+      tileBg: "border-indigo-100 bg-gradient-to-br from-indigo-50 to-white",
       href: fileToolHref(fileId, "library"),
+      kind: "tool",
     },
     {
-      id: "sessions" as const,
+      id: "sessions",
       label: "Sessions",
       icon: History,
-      bg: "bg-purple-50",
-      border: "border-purple-200",
       text: "text-purple-700",
       iconBg: "bg-purple-100",
+      tileBg: "border-purple-100 bg-gradient-to-br from-purple-50 to-white",
       href: fileToolHref(fileId, "sessions"),
+      kind: "tool",
     },
     {
-      id: "analysis" as const,
+      id: "analysis",
       label: "Analysis",
       icon: BarChart3,
-      bg: "bg-blue-50",
-      border: "border-blue-200",
       text: "text-blue-700",
       iconBg: "bg-blue-100",
+      tileBg: "border-blue-100 bg-gradient-to-br from-blue-50 to-white",
       href: fileToolHref(fileId, "analysis"),
+      kind: "tool",
     },
   ];
+  const canChooseQuestionCount =
+    pendingTab?.id !== "extract-mcqs" &&
+    (pendingTab?.kind === "quiz" ||
+      pendingTab?.kind === "exam" ||
+      pendingTab?.kind === "flashcards" ||
+      pendingTab?.kind === "review");
+  const isCustomQuiz = pendingTab?.id === "customize-quiz";
 
   return (
-    <div className="grid grid-cols-2 gap-2 min-[480px]:grid-cols-3 md:grid-cols-4">
-      {allTabs.map((tab) => {
-        const Icon = tab.icon;
-        const className = preview
-          ? "relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-[18px] border-2 border-[#e5e5e5] bg-white px-2 py-3 text-xs font-semibold text-gray-400 opacity-70 shadow-[0_3px_0_#e5e5e5]"
-          : `relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-[18px] border-2 border-[#e5e5e5] border-b-4 border-b-[#d6d6d6] bg-white px-2 py-3 text-center text-xs font-black transition-all hover:-translate-y-0.5 hover:border-[#d4d4d4] hover:bg-[#fbfbfb] hover:shadow-sm active:translate-y-0 ${tab.text}`;
-        const iconWrapClass = preview
-          ? "flex size-8 items-center justify-center rounded-xl bg-gray-100 text-gray-400"
-          : `flex size-8 items-center justify-center rounded-xl ${tab.iconBg}`;
+    <>
+      <div className="grid grid-cols-2 gap-2.5 min-[480px]:grid-cols-3 md:grid-cols-4">
+        {allTabs.map((tab) => {
+          const Icon = tab.icon;
+          const className = preview
+            ? "relative flex min-h-24 flex-col items-center justify-center gap-2 rounded-[18px] border-2 border-[#e5e5e5] bg-white px-2 py-3 text-sm font-semibold text-gray-400 opacity-70 shadow-[0_3px_0_#e5e5e5]"
+            : `group relative flex min-h-24 flex-col items-start justify-between overflow-hidden rounded-[18px] border-2 border-b-4 px-3.5 py-3.5 text-left text-sm font-black shadow-[0_3px_0_rgba(15,23,42,0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(15,23,42,0.10)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#263238]/15 active:translate-y-0 sm:text-[15px] ${tab.text} ${tab.tileBg}`;
+          const iconWrapClass = preview
+            ? "flex size-8 items-center justify-center rounded-xl bg-gray-100 text-gray-400"
+            : `flex size-9 items-center justify-center rounded-full shadow-sm ring-1 ring-white/80 transition-transform duration-200 group-hover:scale-105 ${tab.iconBg}`;
 
-        if (preview) {
+          if (preview) {
+            return (
+              <div key={tab.id} aria-hidden className={className}>
+                <div className={iconWrapClass}>
+                  <Icon className="size-4" aria-hidden />
+                </div>
+                {tab.label}
+              </div>
+            );
+          }
+
           return (
-            <div key={tab.id} aria-hidden className={className}>
+            <button
+              key={tab.id}
+              className={className}
+              onClick={() => openCustomization(tab)}
+              type="button"
+            >
               <div className={iconWrapClass}>
                 <Icon className="size-4" aria-hidden />
               </div>
-              {tab.label}
-            </div>
+              <span className="max-w-full text-balance leading-snug">
+                {tab.label}
+              </span>
+            </button>
           );
-        }
+        })}
+      </div>
 
-        return (
-          <Link key={tab.id} className={className} href={tab.href}>
-            <div className={iconWrapClass}>
-              <Icon className="size-4" aria-hidden />
+      {pendingTab ? (
+        <div
+          className="fixed inset-0 z-[180] flex items-end justify-center bg-slate-950/45 p-4 backdrop-blur-[1px] sm:items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPendingTab(null);
+          }}
+        >
+          <section className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[22px] border border-slate-200 bg-white p-5 shadow-[0_24px_90px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">
+                  Customize before starting
+                </p>
+                <h2 className="mt-1 text-xl font-black text-slate-950">
+                  {pendingTab.label}
+                </h2>
+              </div>
+              <button
+                aria-label="Close customization"
+                className="grid size-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
+                onClick={() => setPendingTab(null)}
+                type="button"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
             </div>
-            <span className="max-w-full text-balance leading-tight">{tab.label}</span>
-          </Link>
-        );
-      })}
-    </div>
+
+            <div className="mt-5 space-y-4">
+              {canChooseQuestionCount ? (
+                <SettingsGroup title="Question count">
+                  {(["all", "10", "25"] as const).map((value) => (
+                    <SettingsRow
+                      key={value}
+                      label={value === "all" ? "All questions" : `${value} questions`}
+                      onClick={() => setQuestionCount(value)}
+                      selected={questionCount === value}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : pendingTab.kind === "study" || pendingTab.kind === "tool" ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
+                  Confirm the setup, then continue to {pendingTab.label}.
+                </p>
+              ) : null}
+
+              {pendingTab.kind === "quiz" ? (
+                <SettingsGroup title="Answer display">
+                  {[
+                    ["asIGo", "Show answers as I go"],
+                    ["atEnd", "Show answers at the end"],
+                  ].map(([value, label]) => (
+                    <SettingsRow
+                      key={value}
+                      label={label}
+                      onClick={() => setShowAnswers(value as PdfQuizSettings["showAnswers"])}
+                      selected={showAnswers === value}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+
+              {isCustomQuiz ? (
+                <>
+                  <SettingsGroup title="Timer">
+                    <SettingsRow
+                      label="Timer on"
+                      onClick={() => setTimerEnabled(true)}
+                      selected={timerEnabled}
+                    />
+                    <SettingsRow
+                      label="Timer off"
+                      onClick={() => setTimerEnabled(false)}
+                      selected={!timerEnabled}
+                    />
+                  </SettingsGroup>
+
+                  <SettingsGroup title="Submit mode">
+                    {[
+                      ["auto", "Automatic submit (click answer)"],
+                      ["manual", 'Manual submit ("Check answer" button)'],
+                    ].map(([value, label]) => (
+                      <SettingsRow
+                        key={value}
+                        label={label}
+                        onClick={() =>
+                          setSubmitMode(value as PdfQuizSettings["submitMode"])
+                        }
+                        selected={submitMode === value}
+                      />
+                    ))}
+                  </SettingsGroup>
+
+                  <SettingsGroup title="Editing">
+                    <SettingsRow
+                      label="Allow editing question and choices"
+                      onClick={() => setAllowEdit((current) => !current)}
+                      selected={allowEdit}
+                    />
+                  </SettingsGroup>
+
+                  <SettingsGroup title="Extraction mode">
+                    {(
+                      Object.keys(EXTRACTION_MODE_LABELS) as Array<ExtractionMode>
+                    ).map((value) => (
+                      <SettingsRow
+                        key={value}
+                        label={EXTRACTION_MODE_LABELS[value]}
+                        onClick={() => setExtractionMode(value)}
+                        selected={extractionMode === value}
+                      />
+                    ))}
+                  </SettingsGroup>
+                </>
+              ) : null}
+
+              {pendingTab.kind === "flashcards" ? (
+                <SettingsGroup title="Order">
+                  <SettingsRow
+                    label="Keep original order"
+                    onClick={() => setShuffleCards(false)}
+                    selected={!shuffleCards}
+                  />
+                  <SettingsRow
+                    label="Shuffle cards"
+                    onClick={() => setShuffleCards(true)}
+                    selected={shuffleCards}
+                  />
+                </SettingsGroup>
+              ) : null}
+
+              {pendingTab.kind === "review" ? (
+                <SettingsGroup title="Review set">
+                  {[
+                    ["all", "All questions"],
+                    ["incorrect", "Incorrect answers"],
+                    ["flagged", "Flagged questions"],
+                    ["correct", "Correct answers"],
+                  ].map(([value, label]) => (
+                    <SettingsRow
+                      key={value}
+                      label={label}
+                      onClick={() => setReviewFilter(value as ReviewFilter)}
+                      selected={reviewFilter === value}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+            </div>
+
+            <div className="mt-6 grid grid-cols-[0.42fr_1fr] gap-3">
+              <button
+                className="h-11 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+                onClick={() => setPendingTab(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="h-11 rounded-xl bg-zinc-950 text-sm font-bold text-white shadow-lg shadow-slate-950/10 transition hover:bg-zinc-800"
+                onClick={startPendingAction}
+                type="button"
+              >
+                Start
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function SettingsGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section>
+      <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">
+        {title}
+      </p>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function SettingsRow({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={selected}
+      className={`flex min-h-11 w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 ${
+        selected
+          ? "bg-blue-50/80 text-slate-950"
+          : "bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      <span
+        className={`grid size-5 shrink-0 place-items-center rounded-full border ${
+          selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"
+        }`}
+      >
+        {selected ? <Check className="size-3.5" aria-hidden /> : null}
+      </span>
+      <span className={`min-w-0 flex-1 text-sm ${selected ? "font-bold" : "font-medium"}`}>
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -2134,6 +2435,8 @@ function FlashcardsInline({
   const [revealed, setRevealed] = useState(false);
   const [known, setKnown] = useState<Set<number>>(new Set());
   const [starred, setStarred] = useState<Set<string>>(new Set());
+  const searchParams = useSearchParams();
+  const autoStartedRef = useRef(false);
   const sessionChrome = useStudySessionChromeOptional();
 
   const filteredIndices = useMemo(() => {
@@ -2278,6 +2581,21 @@ function FlashcardsInline({
     },
     [file.id, file.name, questions.length, sessionStartedAt],
   );
+
+  useEffect(() => {
+    if (
+      !fullPage ||
+      phase !== "list" ||
+      autoStartedRef.current ||
+      searchParams.get("start") !== "1" ||
+      !filteredIndices.length
+    ) {
+      return;
+    }
+
+    autoStartedRef.current = true;
+    startReview(undefined, searchParams.get("shuffle") === "1");
+  }, [filteredIndices.length, fullPage, phase, searchParams, startReview]);
 
   const handleRating = useCallback(
     (rating: FlashcardRating) => {

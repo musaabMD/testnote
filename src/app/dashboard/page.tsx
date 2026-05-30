@@ -21,9 +21,9 @@ import {
 import { captureConversionEvent } from "@/lib/conversion-analytics";
 import { getUserDisplayName } from "@/lib/user-display-name";
 import { APP_LOGO_URL, APP_NAME } from "@/lib/site-branding";
-import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -35,6 +35,7 @@ import {
 
 export default function DashboardPage() {
   const { user } = useUser();
+  const router = useRouter();
   const { files, isLoading: filesLoading } = useStudyFiles();
   const isReady = !filesLoading;
   const [mounted, setMounted] = useState(false);
@@ -93,14 +94,35 @@ export default function DashboardPage() {
       processingRef.current = true;
       setUploadError("");
       setIsProcessing(true);
+      let backgroundJobStarted = false;
 
       try {
-        await processPdfUploads(supported, {
+        const queue = await processPdfUploads(supported, {
           append: true,
           addedBy: userName,
           examSlug: context?.examSlug,
           examName: context?.examName,
+          backgroundOnJobStarted: true,
+          onJobStarted: (record) => {
+            backgroundJobStarted = true;
+            setIsProcessing(false);
+            if (supported.length !== 1) return;
+            const fileParam = record.fileHash
+              ? `file=${encodeURIComponent(record.fileHash)}&`
+              : "";
+            router.push(
+              `/dashboard/content?${fileParam}job=${encodeURIComponent(record.jobId ?? record.id)}`,
+            );
+          },
         });
+        if (!backgroundJobStarted && supported.length === 1) {
+          const latestFile = queue
+            .filter((file) => file.name === supported[0]?.name)
+            .sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0))[0];
+          if (latestFile) {
+            router.push(`/dashboard/content?file=${encodeURIComponent(latestFile.id)}`);
+          }
+        }
       } catch (error) {
         setUploadError(
           error instanceof Error ? error.message : "File extraction failed.",
@@ -110,13 +132,18 @@ export default function DashboardPage() {
         setIsProcessing(false);
       }
     },
-    [userName],
+    [router, userName],
   );
 
   const beginUploadOnboarding = useCallback((files?: File[]) => {
     pendingUploadFilesRef.current = files ?? null;
     setPendingOnboardingFiles(
-      files?.map((file) => ({ name: file.name, size: file.size })) ?? [],
+      files?.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        file,
+      })) ?? [],
     );
     setOnboardingOpen(true);
   }, []);
@@ -166,10 +193,11 @@ export default function DashboardPage() {
 
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      void handleUpload(event.target.files);
+      const selectedFiles = Array.from(event.target.files ?? []);
+      if (selectedFiles.length) beginUploadOnboarding(selectedFiles);
       event.target.value = "";
     },
-    [handleUpload],
+    [beginUploadOnboarding],
   );
 
   return (
@@ -192,18 +220,7 @@ export default function DashboardPage() {
         pendingFiles={pendingOnboardingFiles}
       />
 
-      {isProcessing ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-          <div className="rounded-2xl bg-white px-8 py-6 text-center shadow-lg">
-            <Loader2 className="mx-auto size-8 animate-spin text-sky-600" aria-hidden />
-            <p className="mt-3 text-sm font-semibold text-gray-700">
-              Extracting questions…
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <header className="sticky top-0 z-50 border-b border-[#ece7ff] bg-white/90 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/78">
+      <header className="sticky top-0 z-50 bg-white/90 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/78">
         <div className="mx-auto flex h-16 max-w-[1100px] items-center gap-3">
           <Link href="/" className="flex shrink-0 items-center gap-2" aria-label={`${APP_NAME} home`}>
             <Image
@@ -230,7 +247,7 @@ export default function DashboardPage() {
           headerContent={<DashboardGreeting userName={userName} />}
           isProcessing={isProcessing}
           isReady={isReady}
-          onPickFiles={() => beginUploadOnboarding()}
+          onPickFiles={() => fileInputRef.current?.click()}
           showAddButton={false}
           showHeader={false}
           uploadError={uploadError}

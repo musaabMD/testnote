@@ -10,6 +10,12 @@ export type ResolvedSourceFile = {
   source: PdfSource;
 };
 
+type StoredSourceFile = {
+  data: ArrayBuffer;
+  mimeType: string;
+  name: string;
+};
+
 async function fetchSourceFileFromApi(
   fileId: string,
 ): Promise<{ url: string; fileName: string; mimeType: string } | null> {
@@ -83,6 +89,18 @@ async function cacheRemoteSourceFile(
   }
 }
 
+async function uploadLocalSourceFileIfMissing(
+  convex: ConvexReactClient,
+  fileId: string,
+  local: StoredSourceFile,
+) {
+  const remote = await fetchConvexSourceFileUrl(convex, fileId);
+  if (remote?.url) return;
+
+  const file = new File([local.data], local.name, { type: local.mimeType });
+  await uploadSourceFileToConvex(convex, file, fileId);
+}
+
 export async function syncMissingSourceFilesFromConvex(
   fileIds: string[],
   options?: { convex?: ConvexReactClient },
@@ -92,24 +110,20 @@ export async function syncMissingSourceFilesFromConvex(
   await Promise.all(
     fileIds.map(async (fileId) => {
       const local = await getSourceFile(fileId);
+      const remote = options?.convex
+        ? await fetchConvexSourceFileUrl(options.convex, fileId)
+        : null;
 
-      if (options?.convex) {
-        const remote = await fetchConvexSourceFileUrl(options.convex, fileId);
-        if (!remote?.url && local) {
-          const file = new File([local.data], local.name, { type: local.mimeType });
-          await uploadSourceFileToConvex(options.convex, file, fileId);
-        }
+      if (!remote?.url && local && options?.convex) {
+        const file = new File([local.data], local.name, { type: local.mimeType });
+        await uploadSourceFileToConvex(options.convex, file, fileId);
       }
 
       if (local) return;
 
-      const remote =
-        (options?.convex
-          ? await fetchConvexSourceFileUrl(options.convex, fileId)
-          : null) ?? (await fetchSourceFileFromApi(fileId));
-
-      if (!remote?.url) return;
-      await cacheRemoteSourceFile(fileId, remote);
+      const sourceFile = remote ?? (await fetchSourceFileFromApi(fileId));
+      if (!sourceFile?.url) return;
+      await cacheRemoteSourceFile(fileId, sourceFile);
     }),
   );
 }
@@ -122,6 +136,10 @@ export async function resolveSourceFileForViewing(
   const localUrl = await createObjectUrlForSourceFile(fileId);
   if (localUrl) {
     const stored = await getSourceFile(fileId);
+    if (stored && options?.convex) {
+      void uploadLocalSourceFileIfMissing(options.convex, fileId, stored).catch(() => {});
+    }
+
     return {
       url: localUrl,
       mimeType: stored?.mimeType ?? source.mimeType ?? "application/pdf",

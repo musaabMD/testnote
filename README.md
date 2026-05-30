@@ -77,6 +77,8 @@ Convex tables involved: `sourceFiles`, `fileCache`, `pdfExtractionRecords`, `ext
 
 Original signed-in source files and generated source page preview WebP images are stored through the Convex R2 component when `R2_*` Convex environment variables are configured. Use a separate `R2_OBJECT_PREFIX` per environment, for example `prod` and `dev`, if deployments share one bucket. Source-file object keys use a hashed email owner segment when available so recreating a Clerk user for the same email does not create a second visible user folder. Existing Convex `_storage` source-file rows still resolve as a fallback.
 
+Upload idempotency and fast extraction rules are documented in [UPLOAD_EXTRACTION_PIPELINE.md](./docs/UPLOAD_EXTRACTION_PIPELINE.md).
+
 ## Quota Enforcement Checks
 
 Before enabling serious beta, verify in deployment:

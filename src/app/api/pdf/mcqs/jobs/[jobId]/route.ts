@@ -34,11 +34,25 @@ export async function GET(
     }
 
     const base = {
+      uploadTraceId: job.uploadTraceId,
       jobId: job.id,
       status: job.status,
       progressPagesProcessed: job.progressPagesProcessed,
       totalPages: job.totalPages,
       fileHash: job.fileHash,
+      createdAt: job.createdAt,
+      sourcePersistStartedAt: job.sourcePersistStartedAt,
+      sourcePersistedAt: job.sourcePersistedAt,
+      queuedAt: job.queuedAt,
+      workerClaimedAt: job.workerClaimedAt,
+      extractionStartedAt: job.extractionStartedAt,
+      extractionFinishedAt: job.extractionFinishedAt,
+      readyAt: job.readyAt,
+      failedAt: job.failedAt,
+      errorCode: job.errorCode,
+      errorMessage: job.errorMessage
+        ? sanitizeUserFacingError(job.errorMessage)
+        : undefined,
       error: job.error
         ? sanitizeUserFacingError(job.error)
         : undefined,

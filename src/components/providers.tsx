@@ -74,8 +74,22 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <ConversionIdentityBridge />
         {children}
         <UploadProgressToast />
-        <SupportWidget />
+        <ClerkSupportWidget />
       </TooltipProvider>
     </ConvexProviderWithClerk>
+  );
+}
+
+function ClerkSupportWidget() {
+  const { user } = useUser();
+  const email = user?.primaryEmailAddress?.emailAddress;
+  const displayName =
+    user?.firstName ?? user?.fullName ?? user?.username ?? email?.split("@")[0];
+
+  return (
+    <SupportWidget
+      contactEmail={email ?? undefined}
+      userName={displayName ?? undefined}
+    />
   );
 }

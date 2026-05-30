@@ -1,8 +1,10 @@
 "use client";
 
+import { classifyUsageError } from "@/lib/quota-errors";
+
 export const UPLOAD_PROGRESS_STORAGE_KEY = "drnote:upload-progress";
 export const UPLOAD_PROGRESS_UPDATED_EVENT = "drnote:upload-progress-updated";
-export const FAILED_UPLOAD_RECORD_RETENTION_MS = 30_000;
+export const FAILED_UPLOAD_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 export type UploadProgressStatus =
   | "uploading"
@@ -30,6 +32,7 @@ export type UploadProgressRecord = {
   createdAt: number;
   updatedAt: number;
   phase?: UploadProgressPhase;
+  uploadTraceId?: string;
   jobId?: string;
   fileHash?: string;
   progressPagesProcessed?: number;
@@ -81,7 +84,16 @@ export function getUploadProgressLabel(record: UploadProgressRecord) {
 }
 
 export function getUploadProgressDetail(record: UploadProgressRecord) {
-  if (record.error) return record.error;
+  if (record.error) {
+    const classified = classifyUsageError(record.error);
+    if (classified.kind === "plan_quota") {
+      return "Upgrade required to extract questions from this file.";
+    }
+    if (classified.kind === "billing_inactive") {
+      return "Billing needs attention before extraction can continue.";
+    }
+    return classified.message;
+  }
   if (record.status === "failed") return "Open the upload panel to retry.";
   if (record.status === "ready") return "Open the dashboard to start studying.";
 

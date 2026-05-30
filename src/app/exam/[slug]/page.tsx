@@ -21,6 +21,8 @@ import {
   loadBookmarkedFileIds,
   loadFileUpvoteCounts,
   loadUpvotedFileIds,
+  markFileDeleted,
+  removeFileQueueItem,
   saveBookmarkedFileIds,
   saveFileUpvotes,
 } from "@/lib/pdf-view-storage";
@@ -48,6 +50,8 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { api } from "../../../../convex/_generated/api";
+import { useMutation } from "convex/react";
 
 export default function ExamLandingPage() {
   const params = useParams();
@@ -57,6 +61,7 @@ export default function ExamLandingPage() {
   const libraryRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
+  const deleteExtraction = useMutation(api.studyFiles.deleteMyExtraction);
 
   const { files: studyFiles, isLoading: filesLoading } = useStudyFiles();
 
@@ -299,6 +304,39 @@ export default function ExamLandingPage() {
     }
   }
 
+  function deleteFile(file: PdfFileQueueItem) {
+    if (!inLibrary) return;
+
+    const confirmed = window.confirm(`Delete "${file.name}" from your files?`);
+    if (!confirmed) return;
+
+    removeFileQueueItem(file.id);
+    markFileDeleted(file.id);
+
+    setBookmarkedFileIds((current) => {
+      const next = new Set(current);
+      next.delete(file.id);
+      saveBookmarkedFileIds(next);
+      return next;
+    });
+    setUpvotedFileIds((current) => {
+      const nextUpvoted = new Set(current);
+      nextUpvoted.delete(file.id);
+      setUpvoteCounts((counts) => {
+        const nextCounts = { ...counts };
+        delete nextCounts[file.id];
+        saveFileUpvotes(nextCounts, nextUpvoted);
+        return nextCounts;
+      });
+      return nextUpvoted;
+    });
+
+    void deleteExtraction({ fileHash: file.id }).catch(() => {
+      setNotice(`Removed ${file.name} from this device`);
+      window.setTimeout(() => setNotice(""), 2500);
+    });
+  }
+
   return (
     <main className="min-h-screen bg-white text-slate-950">
       <PublicHeader />
@@ -485,6 +523,7 @@ export default function ExamLandingPage() {
                   locked={!inLibrary}
                   onRequestUnlock={requestLibraryUnlock}
                   onShare={() => shareFile(file)}
+                  onDelete={() => deleteFile(file)}
                   onToggleBookmark={() => toggleFileBookmark(file.id)}
                   onToggleUpvote={() => toggleFileUpvote(file.id)}
                   onToggleExpanded={() => toggleExpanded(file.id)}

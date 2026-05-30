@@ -13,6 +13,7 @@ import type { QuestionAnswer } from "@/components/pdf/pdf-study-panel";
 export const PDF_FILE_BOOKMARKS_KEY = "drnote-pdf-file-bookmarks";
 export const PDF_FILE_UPVOTES_KEY = "drnote-pdf-file-upvotes";
 export const PDF_FILE_UPVOTED_IDS_KEY = "drnote-pdf-file-upvoted-ids";
+export const PDF_FILE_DELETED_IDS_KEY = "drnote-pdf-file-deleted-ids";
 export const PDF_QUESTION_BOOKMARKS_KEY = "drnote-pdf-question-bookmarks";
 export const PDF_QUIZ_ANSWERS_KEY = "drnote-pdf-quiz-answers";
 export const PDF_FILE_SUBJECTS_KEY = "drnote-pdf-file-subjects";
@@ -101,6 +102,33 @@ export function saveFileUpvotes(counts: Record<string, number>, upvotedIds: Set<
   if (typeof window === "undefined") return;
   window.localStorage.setItem(PDF_FILE_UPVOTES_KEY, JSON.stringify(counts));
   window.localStorage.setItem(PDF_FILE_UPVOTED_IDS_KEY, JSON.stringify([...upvotedIds]));
+}
+
+export function loadDeletedFileIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(PDF_FILE_DELETED_IDS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((id) => typeof id === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDeletedFileIds(ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PDF_FILE_DELETED_IDS_KEY, JSON.stringify([...ids]));
+}
+
+export function markFileDeleted(fileId: string) {
+  if (typeof window === "undefined") return;
+  const next = loadDeletedFileIds();
+  next.add(fileId);
+  saveDeletedFileIds(next);
+  window.dispatchEvent(new CustomEvent(PDF_FILE_QUEUE_UPDATED_EVENT));
 }
 
 export function getFileUpvoteCount(fileId: string, counts: Record<string, number>) {
@@ -262,6 +290,11 @@ export function saveFileQueueItem(file: PdfFileQueueItem) {
       : [...queue, file];
 
   writeFileQueueStorage(nextQueue);
+}
+
+export function removeFileQueueItem(fileId: string) {
+  if (typeof window === "undefined") return;
+  writeFileQueueStorage(loadFiles().filter((file) => file.id !== fileId));
 }
 
 export function saveFileQueue(queue: PdfFileQueueItem[]) {

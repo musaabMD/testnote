@@ -199,6 +199,11 @@ function pastedTextFileName(text: string) {
   return "pasted-text.txt";
 }
 
+function isEditablePasteTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest("input, textarea, select, [contenteditable]"));
+}
+
 export function PdfDropzone() {
   const router = useRouter();
   const { openSignUp } = useClerk();
@@ -300,27 +305,35 @@ export function PdfDropzone() {
     pendingOnboardingIntentRef.current = intent;
     setPendingOnboardingFiles(
       intent.kind === "files"
-        ? intent.files.map((file) => ({ name: file.name, size: file.size }))
+        ? intent.files.map((file) => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            file,
+          }))
         : [],
     );
     setOnboardingOpen(true);
   }, []);
 
-  const handleOnboardingComplete = useCallback((result: StudyOnboardingResult) => {
-    uploadContextRef.current = result;
-    const intent = pendingOnboardingIntentRef.current;
-    pendingOnboardingIntentRef.current = null;
-    setPendingOnboardingFiles([]);
+  const handleOnboardingComplete = useCallback(
+    (result: StudyOnboardingResult) => {
+      uploadContextRef.current = result;
+      const intent = pendingOnboardingIntentRef.current;
+      pendingOnboardingIntentRef.current = null;
+      setPendingOnboardingFiles([]);
 
-    if (!intent) return;
+      if (!intent) return;
 
-    if (intent.kind === "picker") {
-      fileInputRef.current?.click();
-      return;
-    }
+      if (intent.kind === "picker") {
+        fileInputRef.current?.click();
+        return;
+      }
 
-    addFiles(intent.files);
-  }, [addFiles]);
+      addFiles(intent.files);
+    },
+    [addFiles],
+  );
 
   const handleOnboardingClose = useCallback(() => {
     pendingOnboardingIntentRef.current = null;
@@ -368,7 +381,8 @@ export function PdfDropzone() {
   };
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    addFiles(event.target.files);
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length) beginOnboarding({ kind: "files", files: selectedFiles });
     event.target.value = "";
   };
 
@@ -390,11 +404,10 @@ export function PdfDropzone() {
   const handlePaste = useCallback(
     (event: ClipboardEvent) => {
       if (screen !== "drop") return;
-
-      const target = event.target;
       if (
-        target instanceof HTMLElement &&
-        target.closest("input, textarea, [contenteditable='true']")
+        event.defaultPrevented ||
+        isEditablePasteTarget(event.target) ||
+        isEditablePasteTarget(document.activeElement)
       ) {
         return;
       }
@@ -645,7 +658,7 @@ export function PdfDropzone() {
                     file_type: "unknown",
                     source_path: "picker",
                   });
-                  beginOnboarding({ kind: "picker" });
+                  fileInputRef.current?.click();
                 }}
                 type="button"
               >

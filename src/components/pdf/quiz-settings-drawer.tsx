@@ -44,6 +44,25 @@ export function QuizSettingsDrawer({
         </header>
 
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+          <SettingsGroup title="Timer">
+            {[
+              { value: true, label: "Timer on" },
+              { value: false, label: "Timer off" },
+            ].map(({ value, label }) => (
+              <SettingsRow
+                key={label}
+                label={label}
+                selected={local.timerEnabled === value}
+                onClick={() =>
+                  setLocal((current) => ({
+                    ...current,
+                    timerEnabled: value,
+                  }))
+                }
+              />
+            ))}
+          </SettingsGroup>
+
           <SettingsGroup title="Answer display">
             {[
               ["asIGo", "Show answers as I go"],

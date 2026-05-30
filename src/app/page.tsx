@@ -5,6 +5,14 @@ import { HeroRotatingLine } from "@/components/hero-feature-rotator";
 import { QBankUpload } from "@/components/qbank-upload";
 import { PublicHeader } from "@/components/site-header";
 
+function Keyword({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="box-decoration-clone bg-[#dcecff] px-1 font-black text-slate-950 shadow-[inset_0_-0.28em_0_#8bbfff]">
+      {children}
+    </span>
+  );
+}
+
 export const metadata: Metadata = {
   title: "AI Study Notes and Quiz Generator",
   description:
@@ -15,22 +23,66 @@ export const metadata: Metadata = {
 };
 
 const studyQuestions = [
-  <>Can I <strong>turn lecture PDFs into practice questions?</strong></>,
-  <>Can I <strong>upload images, PDFs, and pasted notes?</strong></>,
-  <>Can I <strong>study from the source page beside every question?</strong></>,
-  <>Can I <strong>fix grammar without changing the answer?</strong></>,
-  <>Can I <strong>generate quizzes from messy class handouts?</strong></>,
-  <>Can I <strong>practice in timed exam mode?</strong></>,
-  <>Can I <strong>review missed questions after each session?</strong></>,
-  <>Can I <strong>save every file in a searchable study library?</strong></>,
-  <>Can I <strong>make flashcards from the same extracted questions?</strong></>,
-  <>Can I <strong>pause a quiz and resume later?</strong></>,
-  <>Can I <strong>see which sources still need review?</strong></>,
-  <>Can I <strong>track scores across quizzes and mock exams?</strong></>,
-  <>Can I <strong>ask an AI tutor about a question?</strong></>,
-  <>Can I <strong>keep exam prep organized by subject?</strong></>,
-  <>Can I <strong>study from notes without rebuilding them by hand?</strong></>,
-  <>Can I <strong>go from file upload to revision in minutes?</strong></>,
+  <>
+    Can I turn <Keyword>lecture PDFs</Keyword> into{" "}
+    <Keyword>practice questions</Keyword>?
+  </>,
+  <>
+    Can I upload <Keyword>images</Keyword>, <Keyword>PDFs</Keyword>, and{" "}
+    <Keyword>pasted notes</Keyword>?
+  </>,
+  <>
+    Can I study from the <Keyword>source page</Keyword> beside every{" "}
+    <Keyword>question</Keyword>?
+  </>,
+  <>
+    Can I fix <Keyword>grammar</Keyword> without changing the{" "}
+    <Keyword>answer</Keyword>?
+  </>,
+  <>
+    Can I generate <Keyword>quizzes</Keyword> from{" "}
+    <Keyword>messy class handouts</Keyword>?
+  </>,
+  <>
+    Can I practice in <Keyword>timed exam mode</Keyword>?
+  </>,
+  <>
+    Can I review <Keyword>missed questions</Keyword> after each{" "}
+    <Keyword>session</Keyword>?
+  </>,
+  <>
+    Can I save every file in a <Keyword>searchable study library</Keyword>?
+  </>,
+  <>
+    Can I make <Keyword>flashcards</Keyword> from the same{" "}
+    <Keyword>extracted questions</Keyword>?
+  </>,
+  <>
+    Can I <Keyword>pause a quiz</Keyword> and <Keyword>resume later</Keyword>?
+  </>,
+  <>
+    Can I see which <Keyword>sources</Keyword> still need{" "}
+    <Keyword>review</Keyword>?
+  </>,
+  <>
+    Can I track <Keyword>scores</Keyword> across <Keyword>quizzes</Keyword> and{" "}
+    <Keyword>mock exams</Keyword>?
+  </>,
+  <>
+    Can I ask an <Keyword>AI tutor</Keyword> about a question?
+  </>,
+  <>
+    Can I keep <Keyword>exam prep</Keyword> organized by{" "}
+    <Keyword>subject</Keyword>?
+  </>,
+  <>
+    Can I study from <Keyword>notes</Keyword> without{" "}
+    <Keyword>rebuilding them by hand</Keyword>?
+  </>,
+  <>
+    Can I go from <Keyword>file upload</Keyword> to{" "}
+    <Keyword>revision in minutes</Keyword>?
+  </>,
 ];
 
 export default function HomePage() {

@@ -62,6 +62,11 @@ function safeReturnHref(value: string | null, fallback: string) {
   return value;
 }
 
+function parseQuestionCount(value: string | null) {
+  if (value !== "10" && value !== "25") return null;
+  return Number(value);
+}
+
 export default function PdfStudyPage() {
   return (
     <Suspense
@@ -209,12 +214,15 @@ function PdfStudyPageContent() {
   }, [file, quizAnswers]);
   const studyFile = useMemo(() => {
     if (!file) return null;
-    if (searchParams.get("preset") !== "quick-10") return file;
+    const count =
+      parseQuestionCount(searchParams.get("count")) ??
+      (searchParams.get("preset") === "quick-10" ? 10 : null);
+    if (!count) return file;
     return {
       ...file,
       result: {
         ...file.result,
-        mcqs: file.result.mcqs.slice(0, 10),
+        mcqs: file.result.mcqs.slice(0, count),
       },
     };
   }, [file, searchParams]);

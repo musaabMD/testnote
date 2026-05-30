@@ -46,9 +46,5 @@ export function saveStudyProfile(profile: StudyProfile) {
 
 export function isStudyProfileComplete(profile: StudyProfile | null) {
   if (!profile) return false;
-  return Boolean(
-    profile.examGoal.trim() &&
-      profile.level &&
-      profile.primaryGoal.trim(),
-  );
+  return Boolean(profile.examGoal.trim());
 }

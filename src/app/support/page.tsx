@@ -19,7 +19,7 @@ const supportOptions = [
     icon: MessageSquare,
   },
   {
-    title: "Report a bug",
+    title: "Report an issue",
     text: "Include what you uploaded, what you expected, and the page or mode where the issue happened.",
     icon: Bug,
   },

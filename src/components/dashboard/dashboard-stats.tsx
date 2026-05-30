@@ -7,23 +7,46 @@ import {
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import { api } from "../../../convex/_generated/api";
 import { UserButton } from "@clerk/nextjs";
+import {
+  CheckoutButton,
+  usePlans,
+  useSubscription,
+} from "@clerk/nextjs/experimental";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { Flame, Sparkles, Target, X } from "lucide-react";
+import {
+  ArrowRight,
+  BadgePercent,
+  CreditCard,
+  Flame,
+  Gem,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { captureConversionEvent } from "@/lib/conversion-analytics";
 
-const pillBtn =
-  "inline-flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-sm font-bold tabular-nums text-slate-800 transition hover:bg-slate-50";
+const statBtn =
+  "group inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-full border-2 border-b-[4px] px-2.5 text-sm font-black tabular-nums shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-px active:border-b-2 sm:px-3";
 
 const streakBtn =
-  "inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full border-2 border-b-[4px] border-orange-200 bg-[#fff4e6] px-3 text-sm font-extrabold tabular-nums text-[#ff9600] shadow-[0_1px_0_#ffb84d] transition active:translate-y-px active:border-b-2";
+  `${statBtn} border-orange-200 border-b-orange-300 bg-[#fff4e6] text-[#ff9600] shadow-[0_1px_0_#ffb84d]`;
+
+const usageBtn =
+  `${statBtn} border-sky-200 border-b-sky-300 bg-[#e9f7ff] text-[#1c84d8] shadow-[0_1px_0_#a6ddff]`;
+
+const scoreBtn =
+  `${statBtn} hidden border-red-200 border-b-red-300 bg-[#fff0f0] text-[#ff4b4b] shadow-[0_1px_0_#ffb3b3] sm:inline-flex`;
+
+const iconBadge =
+  "grid size-6 shrink-0 place-items-center rounded-full bg-white/80 shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]";
 
 const CONVEX_AUTH_TIMEOUT_MS = 8000;
 
 type UsageDashboard = {
   plan: string;
   planLabel: string;
+  billingStatus: string;
   creditsRemaining: number;
   creditsAllowance: number;
   streak: number;
@@ -47,6 +70,37 @@ function formatCredits(value: number) {
   );
 }
 
+function getPaymentPlanName(plan: string) {
+  if (plan === "school" || plan === "max") return "Max";
+  if (plan === "teams") return "Teams";
+  if (plan === "starter") return "Starter";
+  if (plan === "pro") return "Pro";
+  return "Free";
+}
+
+function getBillingStatusLabel(status: string, plan = "free") {
+  if (status === "active") return "Active";
+  if (status === "upcoming") return "Starts soon";
+  if (status === "trialing") return "Trial";
+  if (status === "past_due") return "Past due";
+  if (status === "canceled") return "Canceled";
+  if (status === "ended") return "Ended";
+  if (plan !== "free") return "Synced";
+  return "No paid plan";
+}
+
+function getNextPlanSlug(plan: string) {
+  if (plan === "pro") return "max";
+  if (plan === "school" || plan === "max" || plan === "teams") return null;
+  return "pro";
+}
+
+function getNextPlanLabel(planSlug: string | null) {
+  if (planSlug === "max") return "Upgrade to Max";
+  if (planSlug === "pro") return "Upgrade to Pro";
+  return "Best plan active";
+}
+
 class DashboardStatsBoundary extends Component<
   { children: ReactNode; fallback: ReactNode },
   { hasError: boolean }
@@ -65,6 +119,8 @@ class DashboardStatsBoundary extends Component<
 
 function DashboardStatsInner({ files }: DashboardStatsProps) {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const plans = usePlans({ for: "user", pageSize: 20 });
+  const subscription = useSubscription({ for: "user" });
   const [mounted, setMounted] = useState(false);
   const [authWaitExpired, setAuthWaitExpired] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -118,28 +174,52 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
   }, [files, mounted, refreshKey]);
   const streak = mounted ? Math.max(localStreak, usage?.streak ?? 0) : 0;
   const creditsRemaining = mounted ? (usage?.creditsRemaining ?? 0) : 0;
+  const currentClerkPlan = useMemo(() => {
+    const subscriptionItems = subscription.data?.subscriptionItems ?? [];
+    const paidItem =
+      subscriptionItems.find(
+        (item) => !item.plan.isDefault && item.status !== "ended",
+      ) ?? subscriptionItems.find((item) => item.status !== "ended");
+
+    if (!paidItem) return null;
+
+    return {
+      name: paidItem.plan.name,
+      slug: paidItem.plan.slug,
+      status: paidItem.status,
+    };
+  }, [subscription.data]);
+  const currentPaymentPlanKey = currentClerkPlan?.slug ?? usage?.plan ?? "free";
+  const nextPlanSlug = getNextPlanSlug(currentPaymentPlanKey);
+  const nextPlanId = nextPlanSlug
+    ? plans.data?.find((plan) => plan.slug === nextPlanSlug)?.id
+    : undefined;
 
   return (
     <>
       <div className="flex items-center gap-1.5 sm:gap-2">
         <button
           aria-label={`${formatCredits(creditsRemaining)} credits remaining`}
-          className={pillBtn}
+          className={usageBtn}
           onClick={() => setPanel("usage")}
           title="View usage"
           type="button"
         >
-          <Sparkles className="size-4 text-slate-700" aria-hidden />
+          <span className={iconBadge}>
+            <Gem className="size-4 stroke-[2.8]" aria-hidden />
+          </span>
           <span>{formatCredits(creditsRemaining)}</span>
         </button>
         <button
           aria-label={`Score ${score}%`}
-          className={`${pillBtn} hidden sm:inline-flex`}
+          className={scoreBtn}
           onClick={() => setPanel("score")}
           title={`Accuracy ${score}%`}
           type="button"
         >
-          <Target className="size-4 text-indigo-600" aria-hidden />
+          <span className={iconBadge}>
+            <BadgePercent className="size-4 stroke-[2.8]" aria-hidden />
+          </span>
           <span>{score}%</span>
         </button>
         <button
@@ -149,14 +229,27 @@ function DashboardStatsInner({ files }: DashboardStatsProps) {
           title={`${streak} day streak`}
           type="button"
         >
-          <Flame className="size-4 shrink-0" aria-hidden />
-          {streak}
+          <span className={iconBadge}>
+            <Flame className="size-4 fill-current stroke-[2.8]" aria-hidden />
+          </span>
+          <span>{streak}</span>
         </button>
         <UserButton />
       </div>
 
       {panel === "usage" ? (
         <UsagePanel
+          checkoutPlanId={nextPlanId}
+          checkoutPlanSlug={nextPlanSlug}
+          checkoutUnavailable={Boolean(plans.isError)}
+          currentPlanForUpgrade={currentPaymentPlanKey}
+          paymentPlanName={
+            currentClerkPlan?.name ?? getPaymentPlanName(usage?.plan ?? "free")
+          }
+          paymentStatus={
+            currentClerkPlan?.status ?? usage?.billingStatus ?? "none"
+          }
+          paymentStatusLoading={subscription.isLoading}
           usage={usage}
           unavailable={usageUnavailable}
           onClose={() => setPanel(null)}
@@ -225,14 +318,29 @@ function PanelShell({
 }
 
 function UsagePanel({
+  checkoutPlanId,
+  checkoutPlanSlug,
+  checkoutUnavailable,
+  currentPlanForUpgrade,
+  paymentPlanName,
+  paymentStatus,
+  paymentStatusLoading,
   usage,
   unavailable,
   onClose,
 }: {
+  checkoutPlanId?: string;
+  checkoutPlanSlug: string | null;
+  checkoutUnavailable: boolean;
+  currentPlanForUpgrade: string;
+  paymentPlanName: string;
+  paymentStatus: string;
+  paymentStatusLoading: boolean;
   usage:
     | {
         plan: string;
         planLabel: string;
+        billingStatus: string;
         creditsRemaining: number;
         creditsAllowance: number;
         usage: {
@@ -272,48 +380,148 @@ function UsagePanel({
 
   return (
     <PanelShell title="Usage" onClose={onClose}>
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="rounded-2xl border-2 border-sky-200 border-b-[5px] border-b-sky-300 bg-[#e9f7ff] p-5 shadow-[0_2px_0_#a6ddff]">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-bold text-slate-900">{usage.planLabel}</p>
-            <p className="text-xs text-slate-500">This month</p>
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-white/80 text-[#1c84d8] shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]">
+              <Gem className="size-6 stroke-[2.8]" aria-hidden />
+            </span>
+            <div>
+              <p className="text-sm font-black text-slate-950">{usage.planLabel}</p>
+              <p className="text-xs font-bold text-sky-700">This month</p>
+            </div>
           </div>
           <div className="text-right">
-            <p className="text-2xl font-black tabular-nums text-slate-900">
+            <p className="text-3xl font-black tabular-nums leading-none text-[#1c84d8]">
               {formatCredits(usage.creditsRemaining)}
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="mt-1 text-xs font-bold text-sky-700">
               of {formatCredits(usage.creditsAllowance)} credits
             </p>
           </div>
         </div>
       </div>
 
+      <div className="rounded-2xl border-2 border-slate-200 border-b-[5px] border-b-slate-300 bg-white p-4 shadow-[0_1px_0_#cbd5e1]">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-slate-100 text-slate-700">
+            <CreditCard className="size-5 stroke-[2.6]" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-black uppercase text-slate-400">
+              Current payment plan
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="text-lg font-black text-slate-950">
+                {paymentPlanName}
+              </p>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-600">
+                {paymentStatusLoading
+                  ? "Checking Clerk"
+                  : getBillingStatusLabel(paymentStatus, usage.plan)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <UsageUpgradeAction
+          currentPlan={currentPlanForUpgrade}
+          planId={checkoutPlanId}
+          planSlug={checkoutPlanSlug}
+          unavailable={checkoutUnavailable}
+        />
+      </div>
+
       <UsageRow
         label="Uploads"
         used={usage.usage.filesUploaded}
         limit={usage.usage.filesLimit}
+        accent="bg-[#1cb0f6]"
       />
       <UsageRow
         label="Pages processed"
         used={usage.usage.pagesProcessed}
         limit={usage.usage.pagesLimit}
+        accent="bg-[#58cc02]"
       />
       <UsageRow
         label="Tutor messages"
         used={usage.usage.chatMessages}
         limit={usage.usage.chatLimit}
+        accent="bg-[#ce82ff]"
       />
-
-      {usage.plan === "free" ? (
-        <Link
-          className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-950 px-4 text-sm font-bold text-white transition hover:bg-zinc-800"
-          href="/pricing"
-        >
-          Upgrade
-        </Link>
-      ) : null}
     </PanelShell>
+  );
+}
+
+function UsageUpgradeAction({
+  currentPlan,
+  planId,
+  planSlug,
+  unavailable,
+}: {
+  currentPlan: string;
+  planId?: string;
+  planSlug: string | null;
+  unavailable: boolean;
+}) {
+  const className =
+    "mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300";
+
+  if (!planSlug) {
+    return (
+      <button className={className} disabled type="button">
+        Best plan active
+      </button>
+    );
+  }
+
+  if (!planId || unavailable) {
+    return (
+      <Link
+        className={className}
+        href="/pricing"
+        onClick={() => {
+          captureConversionEvent("quota_upgrade_clicked", {
+            current_plan: currentPlan,
+            plan_intent: planSlug,
+            surface: "usage_panel",
+          });
+        }}
+      >
+        {getNextPlanLabel(planSlug)}
+        <ArrowRight className="size-4" aria-hidden />
+      </Link>
+    );
+  }
+
+  return (
+    <CheckoutButton
+      for="user"
+      planId={planId}
+      planPeriod="month"
+      newSubscriptionRedirectUrl={`/dashboard?checkout=success&plan=${encodeURIComponent(planSlug)}`}
+    >
+      <button
+        className={className}
+        onClick={() => {
+          captureConversionEvent("quota_upgrade_clicked", {
+            current_plan: currentPlan,
+            plan_intent: planSlug,
+            surface: "usage_panel",
+          });
+          captureConversionEvent("checkout_started", {
+            plan_slug: planSlug,
+            plan_period: "month",
+            source_path: "/dashboard",
+          });
+        }}
+        type="button"
+      >
+        {getNextPlanLabel(planSlug)}
+        <ArrowRight className="size-4" aria-hidden />
+      </button>
+    </CheckoutButton>
   );
 }
 
@@ -321,23 +529,25 @@ function UsageRow({
   label,
   used,
   limit,
+  accent,
 }: {
   label: string;
   used: number;
   limit: number;
+  accent: string;
 }) {
   const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+    <div className="rounded-2xl border-2 border-slate-200 border-b-[5px] border-b-slate-300 bg-white px-4 py-3 shadow-[0_1px_0_#cbd5e1]">
       <div className="mb-2 flex items-center justify-between text-sm">
-        <span className="font-semibold text-slate-700">{label}</span>
-        <span className="font-bold tabular-nums text-slate-500">
+        <span className="font-black text-slate-800">{label}</span>
+        <span className="font-black tabular-nums text-slate-500">
           {used}/{limit}
         </span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-sky-500" style={{ width: `${pct}%` }} />
+      <div className="h-3 overflow-hidden rounded-full bg-slate-100 shadow-[inset_0_1px_2px_rgba(15,23,42,0.08)]">
+        <div className={`h-full rounded-full ${accent}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -379,9 +589,12 @@ function ScorePanel({
 }) {
   return (
     <PanelShell title="Score" onClose={onClose}>
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 text-center">
-        <p className="text-4xl font-black tabular-nums text-indigo-600">{score}%</p>
-        <p className="mt-1 text-sm font-bold text-indigo-900">Answer accuracy</p>
+      <div className="rounded-2xl border-2 border-red-200 border-b-[5px] border-b-red-300 bg-[#fff0f0] p-6 text-center shadow-[0_2px_0_#ffb3b3]">
+        <div className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-white/85 text-[#ff4b4b] shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]">
+          <BadgePercent className="size-8 stroke-[2.8]" aria-hidden />
+        </div>
+        <p className="text-5xl font-black tabular-nums leading-none text-[#ff4b4b]">{score}%</p>
+        <p className="mt-2 text-sm font-black text-red-800">Answer accuracy</p>
       </div>
       <p className="text-sm text-slate-500">
         Based on questions you have answered across {files.length || "your"} course

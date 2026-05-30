@@ -347,6 +347,9 @@ describe("documentation and backlog", () => {
     assert.match(schema, /by_status_updated/);
     assert.match(extractionStorage, /claimNextWorkerExtractionJob/);
     assert.match(extractionStorage, /getActiveExtractionJobForUpload/);
+    assert.match(extractionStorage, /STALE_JOB_RECOVERY_BATCH_SIZE/);
+    assert.match(extractionStorage, /\.eq\("status", "processing"\)\.lt\("updatedAt", cutoff\)/);
+    assert.doesNotMatch(extractionStorage, /ctx\.db\.query\("extractionJobs"\)\.collect\(\)/);
     assert.match(workerRoute, /CRON_SECRET/);
     assert.match(workerRoute, /claimNextWorkerExtractionJob/);
     assert.match(workerRoute, /getConvexSourceFileUrl/);
@@ -356,14 +359,14 @@ describe("documentation and backlog", () => {
     assert.match(crons, /internal\.crons\.runExtractionWorker/);
   });
 
-  it("keeps upload extraction on durable worker path instead of Next after", () => {
+  it("launches queued upload extraction through a durable worker after the response", () => {
     const mcqsRoute = readFileSync(
       path.join(root, "src/app/api/pdf/mcqs/route.ts"),
       "utf8",
     );
 
-    assert.doesNotMatch(mcqsRoute, /from "next\/server"/);
-    assert.doesNotMatch(mcqsRoute, /\bafter\s*\(/);
+    assert.match(mcqsRoute, /from "next\/server"/);
+    assert.match(mcqsRoute, /\bafter\s*\(/);
     assert.match(mcqsRoute, /sourceStored/);
     assert.match(mcqsRoute, /triggerExtractionWorker/);
     assert.match(mcqsRoute, /claimQueuedExtractionJobForUpload/);
@@ -523,7 +526,7 @@ describe("documentation and backlog", () => {
     assert.match(uploadClient, /resumePersistedExtractionJob/);
     assert.match(providers, /<UploadProgressToast \/>/);
     assert.match(mcqsRoute, /displayFileName/);
-    assert.match(mcqsRoute, /fileName: displayFileName/);
+    assert.match(mcqsRoute, /fileName:\s*(?:displayFileName|upload\.displayFileName)/);
   });
 
   it("keeps Stripe webhook to Convex plan sync wiring", () => {
@@ -617,6 +620,8 @@ describe("documentation and backlog", () => {
     assert.match(storage, /claimExtractionJob/);
     assert.match(storage, /retryCooldownMs/);
     assert.match(storage, /isPermanentFailure/);
+    assert.match(storage, /existing\.jobId === args\.jobId/);
+    assert.match(storage, /failedBecauseSameJobWasProcessing/);
     assert.match(lock, /claimDistributedExtraction/);
     assert.match(extraction, /EXTRACTION_LOCK_WAIT_MS/);
     assert.match(jobs, /getExtractionJobById/);

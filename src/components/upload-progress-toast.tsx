@@ -7,8 +7,10 @@ import {
   Loader2,
   X,
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resumePersistedExtractionJob } from "@/lib/process-pdf-upload";
+import { classifyUsageError } from "@/lib/quota-errors";
 import {
   FAILED_UPLOAD_RECORD_RETENTION_MS,
   getUploadProgressDetail,
@@ -25,8 +27,23 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function canRecoverProcessingConflict(record: UploadProgressRecord) {
+  return (
+    record.status === "failed" &&
+    /extraction is already processing/i.test(record.error ?? "")
+  );
+}
+
+function isUpgradeFailure(record: UploadProgressRecord) {
+  if (record.status !== "failed" || !record.error) return false;
+  const kind = classifyUsageError(record.error).kind;
+  return kind === "plan_quota" || kind === "billing_inactive";
+}
+
 export function UploadProgressToast() {
   const [records, setRecords] = useState<UploadProgressRecord[]>([]);
+  const [currentSearch, setCurrentSearch] = useState("");
+  const pathname = usePathname();
   const pollingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -48,7 +65,7 @@ export function UploadProgressToast() {
       if (
         !record.jobId ||
         record.status === "ready" ||
-        record.status === "failed" ||
+        (record.status === "failed" && !canRecoverProcessingConflict(record)) ||
         pollingRef.current.has(record.id)
       ) {
         continue;
@@ -79,12 +96,32 @@ export function UploadProgressToast() {
     };
   }, [records]);
 
+  useEffect(() => {
+    const refreshLocation = () => setCurrentSearch(window.location.search);
+    refreshLocation();
+    window.addEventListener("popstate", refreshLocation);
+    return () => window.removeEventListener("popstate", refreshLocation);
+  }, [pathname]);
+
   const visible = useMemo(
-    () =>
-      records
+    () => {
+      const params = new URLSearchParams(currentSearch);
+      const activeFileId = params.get("file");
+      const activeJobId = params.get("job");
+
+      return records
         .filter((record) => record.status !== "ready")
-        .slice(0, 2),
-    [records],
+        .filter((record) => !isUpgradeFailure(record))
+        .filter((record) => {
+          if (pathname === "/dashboard") return false;
+          if (pathname !== "/dashboard/content") return true;
+          if (activeJobId && record.jobId === activeJobId) return false;
+          if (activeFileId && record.fileHash === activeFileId) return false;
+          return true;
+        })
+        .slice(0, 2);
+    },
+    [currentSearch, pathname, records],
   );
 
   if (!visible.length) return null;

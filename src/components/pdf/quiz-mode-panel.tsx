@@ -62,6 +62,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Flag,
   RotateCcw,
   ScanSearch,
@@ -86,6 +87,12 @@ function getRawOptions(question: PdfMcq) {
     label: option.label,
     text: option.text.trim(),
   }));
+}
+
+function formatElapsedTime(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function filterValidQuestions(
@@ -159,6 +166,7 @@ export function QuizModePanel({
   const [preparingQuiz, setPreparingQuiz] = useState(false);
   const [prepFailed, setPrepFailed] = useState(false);
   const [prepRetryKey, setPrepRetryKey] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [completedDurationMs, setCompletedDurationMs] = useState<number | null>(null);
   const autoGrammarAttempted = useRef(new Set<string>());
   const autoFillAttempted = useRef(new Set<string>());
@@ -180,6 +188,16 @@ export function QuizModePanel({
     if (finished || validQuestions.length === 0) return;
     saveQuizProgress(file.id, effectiveIndex);
   }, [file.id, finished, effectiveIndex, validQuestions.length]);
+
+  useEffect(() => {
+    if (!settings.timerEnabled || finished) return;
+    const updateElapsed = () => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    };
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(interval);
+  }, [finished, settings.timerEnabled, startedAt]);
 
   const question = validQuestions[effectiveIndex];
 
@@ -485,6 +503,12 @@ export function QuizModePanel({
           <span className="min-w-[3.5rem] text-center text-sm font-bold text-slate-500">
             {effectiveIndex + 1} / {validQuestions.length}
           </span>
+          {settings.timerEnabled ? (
+            <span className="hidden items-center gap-1.5 rounded-full bg-slate-100 px-3 py-2 text-xs font-bold tabular-nums text-slate-600 sm:flex">
+              <Clock className="size-3.5" aria-hidden />
+              {formatElapsedTime(elapsedSeconds)}
+            </span>
+          ) : null}
           <button
             className={`grid size-9 place-items-center rounded-full transition ${
               isBookmarked ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
@@ -582,6 +606,7 @@ export function QuizModePanel({
   }, [
     answerState,
     canViewSource,
+    elapsedSeconds,
     feedbackOpen,
     finished,
     fixingGrammar,
@@ -598,6 +623,7 @@ export function QuizModePanel({
     questionId,
     sessionChrome,
     settings.submitMode,
+    settings.timerEnabled,
     settingsOpen,
     submitPromptOpen,
     validQuestions.length,

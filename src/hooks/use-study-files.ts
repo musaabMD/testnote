@@ -3,6 +3,7 @@
 import { api } from "../../convex/_generated/api";
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import {
+  loadDeletedFileIds,
   loadFiles,
   PDF_FILE_QUEUE_UPDATED_EVENT,
 } from "@/lib/pdf-view-storage";
@@ -10,10 +11,8 @@ import {
   mergeConvexRecordsWithLocal,
   type ConvexExtractionRecord,
 } from "@/lib/study-files";
-import { syncMissingSourceFilesFromConvex } from "@/lib/resolve-source-file";
-import { convex } from "@/lib/convex-client";
 import { useConvexAuth, useQuery } from "convex/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const CONVEX_AUTH_TIMEOUT_MS = 8000;
 
@@ -23,6 +22,7 @@ export function useStudyFiles(): {
 } {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const [localFiles, setLocalFiles] = useState<PdfFileQueueItem[]>(loadFiles);
+  const [deletedFileIds, setDeletedFileIds] = useState<Set<string>>(loadDeletedFileIds);
   const [authWaitExpired, setAuthWaitExpired] = useState(false);
   const convexAuthTimedOut = authLoading && authWaitExpired;
   const queryDisabled = convexAuthTimedOut || (!authLoading && !isAuthenticated);
@@ -42,6 +42,7 @@ export function useStudyFiles(): {
   useEffect(() => {
     function handleFileQueueUpdated() {
       setLocalFiles(loadFiles());
+      setDeletedFileIds(loadDeletedFileIds());
     }
     window.addEventListener(PDF_FILE_QUEUE_UPDATED_EVENT, handleFileQueueUpdated);
     return () => {
@@ -53,25 +54,14 @@ export function useStudyFiles(): {
   }, []);
 
   const files = useMemo(() => {
-    if (queryDisabled) return localFiles;
+    const visibleLocalFiles = localFiles.filter((file) => !deletedFileIds.has(file.id));
+    if (queryDisabled) return visibleLocalFiles;
     if (records === undefined) return undefined;
     return mergeConvexRecordsWithLocal(
       records as ConvexExtractionRecord[],
-      localFiles,
-    );
-  }, [localFiles, queryDisabled, records]);
-
-  const syncedFileIdsRef = useRef<string>("");
-  useEffect(() => {
-    if (!files?.length || !isAuthenticated || authLoading) return;
-    const key = files.map((file) => file.id).join(",");
-    if (syncedFileIdsRef.current === key) return;
-    syncedFileIdsRef.current = key;
-    void syncMissingSourceFilesFromConvex(
-      files.map((file) => file.id),
-      { convex },
-    );
-  }, [authLoading, files, isAuthenticated]);
+      visibleLocalFiles,
+    ).filter((file) => !deletedFileIds.has(file.id));
+  }, [deletedFileIds, localFiles, queryDisabled, records]);
 
   return {
     files,

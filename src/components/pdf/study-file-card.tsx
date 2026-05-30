@@ -2,7 +2,7 @@
 
 import type { PdfFileQueueItem } from "@/lib/pdf-mcqs";
 import { isLinkResource } from "@/lib/pdf-view-storage";
-import { ArrowUp, Bookmark, ChevronRight, Link2 } from "lucide-react";
+import { ArrowUp, Bookmark, Link2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -16,6 +16,7 @@ type StudyFileCardProps = {
   onToggleUpvote: () => void;
   onToggleExpanded: () => void;
   onShare: () => Promise<boolean>;
+  onDelete: () => void;
   locked?: boolean;
   onRequestUnlock?: () => void;
 };
@@ -28,6 +29,7 @@ export function StudyFileCard({
   onToggleBookmark,
   onToggleUpvote,
   onShare,
+  onDelete,
   locked = false,
   onRequestUnlock,
 }: StudyFileCardProps) {
@@ -175,22 +177,24 @@ export function StudyFileCard({
 
           <button
             aria-label={
-              locked
-                ? "Add exam to library to start"
-                : `Open ${file.name}`
+              locked ? "Delete unavailable — add exam to library" : `Delete ${file.name}`
             }
             className={`flex size-10 items-center justify-center rounded-full transition-all sm:size-11 ${
               locked
                 ? "bg-[#e5e5e5] text-[#777] hover:bg-[#d4d4d4]"
-                : "text-[#8a98aa] hover:bg-[#ecfeff] hover:text-[#0891b2]"
+                : "text-[#8a98aa] hover:bg-[#fee2e2] hover:text-[#dc2626]"
             }`}
             onClick={(event) => {
               event.stopPropagation();
-              openDetails();
+              if (locked) {
+                onRequestUnlock?.();
+                return;
+              }
+              onDelete();
             }}
             type="button"
           >
-            <ChevronRight className="size-5" aria-hidden />
+            <Trash2 className="size-5" aria-hidden />
           </button>
         </div>
       </div>

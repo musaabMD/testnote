@@ -23,6 +23,20 @@ type SupportCategory = Doc<"supportThreads">["category"];
 type SupportThread = Doc<"supportThreads">;
 type SupportAttachment = NonNullable<Doc<"supportMessages">["attachments"]>[number];
 
+const supportCategoryValues = [
+  "message",
+  "bug",
+  "feedback",
+  "review",
+  "suggest_exam",
+  "suggest_feature",
+  "rating",
+] as const satisfies SupportCategory[];
+
+const supportStatusValues = ["open", "in_progress", "resolved"] as const;
+
+const supportCategoryFilter = v.union(supportCategory, v.literal("all"));
+
 const supportAttachment = v.object({
   storageId: v.id("_storage"),
   name: v.string(),
@@ -217,26 +231,84 @@ export const getThreadMessages = query({
 export const listThreadsForAdmin = query({
   args: {
     status: v.union(supportStatus, v.literal("all")),
+    category: v.optional(supportCategoryFilter),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
 
-    const limit = Math.min(args.limit ?? 60, 100);
+    const limit = Math.min(args.limit ?? 60, 300);
     const status = args.status;
-    if (status === "all") {
-      return await ctx.db
-        .query("supportThreads")
-        .withIndex("by_updated")
-        .order("desc")
-        .take(limit);
+    const category = args.category ?? "all";
+    const threads =
+      status === "all"
+        ? await ctx.db
+            .query("supportThreads")
+            .withIndex("by_updated")
+            .order("desc")
+            .take(limit)
+        : await ctx.db
+            .query("supportThreads")
+            .withIndex("by_status_updated", (q) => q.eq("status", status))
+            .order("desc")
+            .take(limit);
+
+    if (category === "all") return threads;
+    return threads.filter((thread) => thread.category === category);
+  },
+});
+
+export const getSupportOverviewForAdmin = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+
+    const threads = await ctx.db
+      .query("supportThreads")
+      .withIndex("by_updated")
+      .order("desc")
+      .take(Math.min(args.limit ?? 500, 1000));
+    const byCategory = Object.fromEntries(
+      supportCategoryValues.map((category) => [category, 0]),
+    ) as Record<SupportCategory, number>;
+    const byStatus = Object.fromEntries(
+      supportStatusValues.map((item) => [item, 0]),
+    ) as Record<SupportThread["status"], number>;
+    const ratingThreads = threads.filter((thread) => thread.rating);
+    const averageRating =
+      ratingThreads.length > 0
+        ? ratingThreads.reduce((sum, thread) => sum + (thread.rating ?? 0), 0) /
+          ratingThreads.length
+        : null;
+
+    for (const thread of threads) {
+      byCategory[thread.category] += 1;
+      byStatus[thread.status] += 1;
     }
 
-    return await ctx.db
-      .query("supportThreads")
-      .withIndex("by_status_updated", (q) => q.eq("status", status))
-      .order("desc")
-      .take(limit);
+    return {
+      total: threads.length,
+      byCategory,
+      byStatus,
+      averageRating,
+      ratingCount: ratingThreads.length,
+      recentReviews: threads
+        .filter(
+          (thread) => thread.category === "review" || thread.category === "rating",
+        )
+        .slice(0, 12),
+      recentBugs: threads
+        .filter((thread) => thread.category === "bug")
+        .slice(0, 12),
+      recentExamSuggestions: threads
+        .filter((thread) => thread.category === "suggest_exam")
+        .slice(0, 12),
+      recentFeatureSuggestions: threads
+        .filter((thread) => thread.category === "suggest_feature")
+        .slice(0, 12),
+    };
   },
 });
 
@@ -393,12 +465,12 @@ function inferPriority(category: SupportCategory, message: string) {
 function subjectFrom(message: string, category: SupportCategory) {
   const fallback = {
     message: "Support message",
-    bug: "Bug report",
+    bug: "Issue report",
     feedback: "Feedback",
     review: "Review",
     suggest_exam: "Exam suggestion",
     suggest_feature: "Feature suggestion",
-    rating: "App rating",
+    rating: "DrNote rating",
   } satisfies Record<SupportCategory, string>;
   const first = message.split(/[.!?]/)[0]?.trim();
   if (!first) return fallback[category];

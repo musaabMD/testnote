@@ -9,6 +9,7 @@ export type PdfQuizSettings = {
   submitMode: "manual" | "auto";
   allowEdit: boolean;
   extractionMode: ExtractionMode;
+  timerEnabled: boolean;
 };
 
 export const PDF_QUIZ_SETTINGS_KEY = "drnote-pdf-quiz-settings";
@@ -18,6 +19,7 @@ export const DEFAULT_PDF_QUIZ_SETTINGS: PdfQuizSettings = {
   submitMode: "auto",
   allowEdit: false,
   extractionMode: "make-choices",
+  timerEnabled: true,
 };
 
 export function loadPdfQuizSettings(): PdfQuizSettings {

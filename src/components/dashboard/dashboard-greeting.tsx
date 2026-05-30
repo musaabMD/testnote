@@ -26,7 +26,7 @@ export function DashboardGreeting({ userName }: DashboardGreetingProps) {
   }, []);
 
   return (
-    <section className="rounded-[28px] border-2 border-[#e5e5e5] bg-white px-4 py-5 text-center shadow-[0_5px_0_#e5e5e5] sm:px-6">
+    <section className="rounded-[28px] border-2 border-[#ded9d9] bg-[#f5f3f3] px-4 py-5 text-center shadow-[0_5px_0_#ded9d9] sm:px-6">
       <div className="grid justify-items-center gap-3">
         <div className="flex min-w-0 flex-col items-center gap-2 sm:flex-row sm:gap-3">
           <span

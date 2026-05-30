@@ -70,6 +70,8 @@ const extractionJobStatus = v.union(
   v.literal("ready"),
   v.literal("failed"),
 );
+const STALE_JOB_RECOVERY_BATCH_SIZE = 50;
+const QUEUE_HEALTH_SAMPLE_SIZE = 200;
 
 const extractionPageStatus = v.union(
   v.literal("pending"),
@@ -330,6 +332,7 @@ export const upsertExtractionJob = mutation({
     jobId: v.string(),
     extractionKey: v.optional(v.string()),
     ownerId: v.optional(v.string()),
+    uploadTraceId: v.optional(v.string()),
     fileHash: v.string(),
     fileName: v.optional(v.string()),
     mimeType: v.optional(v.string()),
@@ -341,6 +344,16 @@ export const upsertExtractionJob = mutation({
     totalPages: v.number(),
     error: v.optional(v.string()),
     failureReason: v.optional(v.string()),
+    sourcePersistStartedAt: v.optional(v.number()),
+    sourcePersistedAt: v.optional(v.number()),
+    queuedAt: v.optional(v.number()),
+    workerClaimedAt: v.optional(v.number()),
+    extractionStartedAt: v.optional(v.number()),
+    extractionFinishedAt: v.optional(v.number()),
+    readyAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     assertStorageSecret(args.secret);
@@ -354,6 +367,7 @@ export const upsertExtractionJob = mutation({
       jobId: string;
       extractionKey?: string;
       ownerId?: string;
+      uploadTraceId?: string;
       fileHash: string;
       fileName?: string;
       mimeType?: string;
@@ -365,9 +379,20 @@ export const upsertExtractionJob = mutation({
       totalPages: number;
       error?: string;
       failureReason?: string;
+      sourcePersistStartedAt?: number;
+      sourcePersistedAt?: number;
+      queuedAt?: number;
+      workerClaimedAt?: number;
+      extractionStartedAt?: number;
+      extractionFinishedAt?: number;
+      readyAt?: number;
+      failedAt?: number;
+      errorCode?: string;
+      errorMessage?: string;
       updatedAt: number;
     } = {
       jobId: args.jobId,
+      uploadTraceId: args.uploadTraceId,
       fileHash: args.fileHash,
       fileName: args.fileName,
       mimeType: args.mimeType,
@@ -379,6 +404,16 @@ export const upsertExtractionJob = mutation({
       totalPages: args.totalPages,
       error: args.error,
       failureReason: args.failureReason,
+      sourcePersistStartedAt: args.sourcePersistStartedAt,
+      sourcePersistedAt: args.sourcePersistedAt,
+      queuedAt: args.queuedAt,
+      workerClaimedAt: args.workerClaimedAt,
+      extractionStartedAt: args.extractionStartedAt,
+      extractionFinishedAt: args.extractionFinishedAt,
+      readyAt: args.readyAt,
+      failedAt: args.failedAt,
+      errorCode: args.errorCode,
+      errorMessage: args.errorMessage,
       updatedAt: Date.now(),
     };
     if (args.extractionKey !== undefined) payload.extractionKey = args.extractionKey;
@@ -410,6 +445,79 @@ export const getExtractionJobById = query({
   },
 });
 
+export const getExtractionQueueHealth = query({
+  args: {
+    secret: v.string(),
+    staleAfterMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    assertStorageSecret(args.secret);
+
+    const now = Date.now();
+    const cutoff = now - args.staleAfterMs;
+    const queued = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) => q.eq("status", "queued"))
+      .order("asc")
+      .take(QUEUE_HEALTH_SAMPLE_SIZE + 1);
+    const processing = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) => q.eq("status", "processing"))
+      .order("asc")
+      .take(QUEUE_HEALTH_SAMPLE_SIZE + 1);
+    const staleQueued = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) =>
+        q.eq("status", "queued").lt("updatedAt", cutoff),
+      )
+      .order("asc")
+      .take(QUEUE_HEALTH_SAMPLE_SIZE + 1);
+    const staleProcessing = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) =>
+        q.eq("status", "processing").lt("updatedAt", cutoff),
+      )
+      .order("asc")
+      .take(QUEUE_HEALTH_SAMPLE_SIZE + 1);
+    const recentFailed = await ctx.db
+      .query("extractionJobs")
+      .withIndex("by_status_updated", (q) => q.eq("status", "failed"))
+      .order("desc")
+      .take(50);
+
+    return {
+      now,
+      staleAfterMs: args.staleAfterMs,
+      sampleLimit: QUEUE_HEALTH_SAMPLE_SIZE,
+      queued: summarizeRows(queued),
+      processing: summarizeRows(processing),
+      staleQueued: summarizeRows(staleQueued),
+      staleProcessing: summarizeRows(staleProcessing),
+      recentFailed: recentFailed.map((job) => ({
+        jobId: job.jobId,
+        uploadTraceId: job.uploadTraceId,
+        fileHash: job.fileHash,
+        fileName: job.fileName,
+        failureReason: job.failureReason,
+        errorCode: job.errorCode,
+        updatedAt: job.updatedAt,
+        failedAt: job.failedAt,
+      })),
+    };
+  },
+});
+
+function summarizeRows(rows: Array<{ updatedAt: number }>) {
+  const capped = rows.length > QUEUE_HEALTH_SAMPLE_SIZE;
+  const visibleRows = capped ? rows.slice(0, QUEUE_HEALTH_SAMPLE_SIZE) : rows;
+  return {
+    count: visibleRows.length,
+    capped,
+    oldestUpdatedAt: visibleRows[0]?.updatedAt,
+    newestUpdatedAt: visibleRows.at(-1)?.updatedAt,
+  };
+}
+
 export const claimNextWorkerExtractionJob = mutation({
   args: {
     secret: v.string(),
@@ -428,8 +536,9 @@ export const claimNextWorkerExtractionJob = mutation({
 
     const staleProcessing = await ctx.db
       .query("extractionJobs")
-      .withIndex("by_status_updated", (q) => q.eq("status", "processing"))
-      .filter((q) => q.lt(q.field("updatedAt"), cutoff))
+      .withIndex("by_status_updated", (q) =>
+        q.eq("status", "processing").lt("updatedAt", cutoff),
+      )
       .order("asc")
       .first();
 
@@ -446,11 +555,13 @@ export const claimNextWorkerExtractionJob = mutation({
       status: "processing",
       error: undefined,
       failureReason: undefined,
+      workerClaimedAt: now,
       updatedAt: now,
     });
 
     return {
       jobId: job.jobId,
+      uploadTraceId: job.uploadTraceId,
       fileHash: job.fileHash,
       fileName: job.fileName,
       mimeType: job.mimeType,
@@ -509,6 +620,7 @@ export const claimQueuedExtractionJobForUpload = mutation({
     extractionKey: v.string(),
     jobId: v.string(),
     ownerId: v.string(),
+    uploadTraceId: v.optional(v.string()),
     fileHash: v.string(),
     fileName: v.optional(v.string()),
     mimeType: v.optional(v.string()),
@@ -516,6 +628,9 @@ export const claimQueuedExtractionJobForUpload = mutation({
     extractionModel: v.optional(v.string()),
     clerkUserId: v.optional(v.string()),
     totalPages: v.number(),
+    sourcePersistStartedAt: v.optional(v.number()),
+    sourcePersistedAt: v.optional(v.number()),
+    queuedAt: v.optional(v.number()),
     staleAfterMs: v.number(),
     retryCooldownMs: v.number(),
   },
@@ -529,6 +644,36 @@ export const claimQueuedExtractionJobForUpload = mutation({
       .first();
 
     if (existing) {
+      if (
+        existing.jobId === args.jobId &&
+        (existing.status === "queued" || existing.status === "processing")
+      ) {
+        await ctx.db.patch(existing._id, {
+          ownerId: args.ownerId,
+          uploadTraceId: args.uploadTraceId,
+          fileHash: args.fileHash,
+          fileName: args.fileName,
+          mimeType: args.mimeType,
+          extractionMode: args.extractionMode,
+          extractionModel: args.extractionModel,
+          clerkUserId: args.clerkUserId,
+          status: "processing",
+          progressPagesProcessed: existing.progressPagesProcessed ?? 0,
+          totalPages: args.totalPages,
+          error: undefined,
+          failureReason: undefined,
+          sourcePersistStartedAt: args.sourcePersistStartedAt,
+          sourcePersistedAt: args.sourcePersistedAt,
+          updatedAt: now,
+        });
+
+        return {
+          owner: true,
+          status: "processing" as const,
+          jobId: args.jobId,
+        };
+      }
+
       if (existing.status === "ready") {
         return {
           owner: false,
@@ -550,8 +695,12 @@ export const claimQueuedExtractionJobForUpload = mutation({
         };
       }
 
+      const failedBecauseSameJobWasProcessing =
+        existing.status === "failed" &&
+        /extraction is already processing/i.test(existing.error ?? "");
       const failedRecently =
         existing.status === "failed" &&
+        !failedBecauseSameJobWasProcessing &&
         existing.updatedAt > now - args.retryCooldownMs;
       if (failedRecently || isPermanentFailure(existing.failureReason)) {
         return {
@@ -566,6 +715,7 @@ export const claimQueuedExtractionJobForUpload = mutation({
       await ctx.db.patch(existing._id, {
         jobId: args.jobId,
         ownerId: args.ownerId,
+        uploadTraceId: args.uploadTraceId,
         fileHash: args.fileHash,
         fileName: args.fileName,
         mimeType: args.mimeType,
@@ -577,6 +727,16 @@ export const claimQueuedExtractionJobForUpload = mutation({
         totalPages: args.totalPages,
         error: undefined,
         failureReason: undefined,
+        sourcePersistStartedAt: args.sourcePersistStartedAt,
+        sourcePersistedAt: args.sourcePersistedAt,
+        queuedAt: args.queuedAt ?? now,
+        workerClaimedAt: undefined,
+        extractionStartedAt: undefined,
+        extractionFinishedAt: undefined,
+        readyAt: undefined,
+        failedAt: undefined,
+        errorCode: undefined,
+        errorMessage: undefined,
         updatedAt: now,
       });
 
@@ -596,6 +756,7 @@ export const claimQueuedExtractionJobForUpload = mutation({
       jobId: args.jobId,
       extractionKey: args.extractionKey,
       ownerId: args.ownerId,
+      uploadTraceId: args.uploadTraceId,
       fileHash: args.fileHash,
       fileName: args.fileName,
       mimeType: args.mimeType,
@@ -605,6 +766,16 @@ export const claimQueuedExtractionJobForUpload = mutation({
       status: "queued",
       progressPagesProcessed: 0,
       totalPages: args.totalPages,
+      sourcePersistStartedAt: args.sourcePersistStartedAt,
+      sourcePersistedAt: args.sourcePersistedAt,
+      queuedAt: args.queuedAt ?? now,
+      workerClaimedAt: undefined,
+      extractionStartedAt: undefined,
+      extractionFinishedAt: undefined,
+      readyAt: undefined,
+      failedAt: undefined,
+      errorCode: undefined,
+      errorMessage: undefined,
       updatedAt: now,
     } as const;
 
@@ -631,6 +802,7 @@ export const claimExtractionJob = mutation({
     extractionKey: v.string(),
     jobId: v.string(),
     ownerId: v.string(),
+    uploadTraceId: v.optional(v.string()),
     fileHash: v.string(),
     fileName: v.optional(v.string()),
     mimeType: v.optional(v.string()),
@@ -638,6 +810,9 @@ export const claimExtractionJob = mutation({
     extractionModel: v.optional(v.string()),
     clerkUserId: v.optional(v.string()),
     totalPages: v.number(),
+    sourcePersistStartedAt: v.optional(v.number()),
+    sourcePersistedAt: v.optional(v.number()),
+    queuedAt: v.optional(v.number()),
     staleAfterMs: v.number(),
     retryCooldownMs: v.number(),
   },
@@ -651,6 +826,36 @@ export const claimExtractionJob = mutation({
       .first();
 
     if (existing) {
+      if (
+        existing.jobId === args.jobId &&
+        (existing.status === "queued" || existing.status === "processing")
+      ) {
+        await ctx.db.patch(existing._id, {
+          ownerId: args.ownerId,
+          fileHash: args.fileHash,
+          fileName: args.fileName,
+          mimeType: args.mimeType,
+          extractionMode: args.extractionMode,
+          extractionModel: args.extractionModel,
+          clerkUserId: args.clerkUserId,
+          status: "processing",
+          progressPagesProcessed: existing.progressPagesProcessed ?? 0,
+          totalPages: args.totalPages,
+          error: undefined,
+          failureReason: undefined,
+          sourcePersistStartedAt: args.sourcePersistStartedAt,
+          sourcePersistedAt: args.sourcePersistedAt,
+          workerClaimedAt: now,
+          updatedAt: now,
+        });
+
+        return {
+          owner: true,
+          status: "processing" as const,
+          jobId: args.jobId,
+        };
+      }
+
       if (existing.status === "ready") {
         return {
           owner: false,
@@ -672,8 +877,12 @@ export const claimExtractionJob = mutation({
         };
       }
 
+      const failedBecauseSameJobWasProcessing =
+        existing.status === "failed" &&
+        /extraction is already processing/i.test(existing.error ?? "");
       const failedRecently =
         existing.status === "failed" &&
+        !failedBecauseSameJobWasProcessing &&
         existing.updatedAt > now - args.retryCooldownMs;
       if (failedRecently || isPermanentFailure(existing.failureReason)) {
         return {
@@ -688,6 +897,7 @@ export const claimExtractionJob = mutation({
       await ctx.db.patch(existing._id, {
         jobId: args.jobId,
         ownerId: args.ownerId,
+        uploadTraceId: args.uploadTraceId,
         fileHash: args.fileHash,
         fileName: args.fileName,
         mimeType: args.mimeType,
@@ -699,6 +909,16 @@ export const claimExtractionJob = mutation({
         totalPages: args.totalPages,
         error: undefined,
         failureReason: undefined,
+        sourcePersistStartedAt: args.sourcePersistStartedAt,
+        sourcePersistedAt: args.sourcePersistedAt,
+        queuedAt: args.queuedAt ?? now,
+        workerClaimedAt: undefined,
+        extractionStartedAt: undefined,
+        extractionFinishedAt: undefined,
+        readyAt: undefined,
+        failedAt: undefined,
+        errorCode: undefined,
+        errorMessage: undefined,
         updatedAt: now,
       });
 
@@ -718,6 +938,7 @@ export const claimExtractionJob = mutation({
       jobId: args.jobId,
       extractionKey: args.extractionKey,
       ownerId: args.ownerId,
+      uploadTraceId: args.uploadTraceId,
       fileHash: args.fileHash,
       fileName: args.fileName,
       mimeType: args.mimeType,
@@ -727,6 +948,16 @@ export const claimExtractionJob = mutation({
       status: "processing",
       progressPagesProcessed: 0,
       totalPages: args.totalPages,
+      sourcePersistStartedAt: args.sourcePersistStartedAt,
+      sourcePersistedAt: args.sourcePersistedAt,
+      queuedAt: args.queuedAt ?? now,
+      workerClaimedAt: undefined,
+      extractionStartedAt: undefined,
+      extractionFinishedAt: undefined,
+      readyAt: undefined,
+      failedAt: undefined,
+      errorCode: undefined,
+      errorMessage: undefined,
       updatedAt: now,
     } as const;
 
@@ -1248,6 +1479,8 @@ export const recoverStaleExtractionJobs = mutation({
 export const recoverStaleExtractionJobsInternal = internalMutation({
   args: {},
   handler: async (ctx) => {
+    if (process.env.EXTRACTION_CRONS_ENABLED !== "true") return { recovered: 0 };
+
     const staleAfterMs = Number(process.env.EXTRACTION_LOCK_STALE_AFTER_MS ?? 600_000);
     return await recoverStaleJobsHandler(
       ctx,
@@ -1259,15 +1492,26 @@ export const recoverStaleExtractionJobsInternal = internalMutation({
 async function recoverStaleJobsHandler(ctx: MutationCtx, staleAfterMs: number) {
   const now = Date.now();
   const cutoff = now - staleAfterMs;
-  const rows = await ctx.db.query("extractionJobs").collect();
+  const queuedRows = await ctx.db
+    .query("extractionJobs")
+    .withIndex("by_status_updated", (q) =>
+      q.eq("status", "queued").lt("updatedAt", cutoff),
+    )
+    .order("asc")
+    .take(STALE_JOB_RECOVERY_BATCH_SIZE);
+  const processingRows = await ctx.db
+    .query("extractionJobs")
+    .withIndex("by_status_updated", (q) =>
+      q.eq("status", "processing").lt("updatedAt", cutoff),
+    )
+    .order("asc")
+    .take(STALE_JOB_RECOVERY_BATCH_SIZE);
+  const rows = [...queuedRows, ...processingRows]
+    .sort((a, b) => a.updatedAt - b.updatedAt)
+    .slice(0, STALE_JOB_RECOVERY_BATCH_SIZE);
   let recovered = 0;
 
   for (const row of rows) {
-    const stuck =
-      (row.status === "queued" || row.status === "processing") &&
-      row.updatedAt < cutoff;
-    if (!stuck) continue;
-
     await ctx.db.patch(row._id, {
       status: "failed",
       failureReason: "worker_timeout",

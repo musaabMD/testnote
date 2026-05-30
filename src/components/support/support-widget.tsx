@@ -14,7 +14,6 @@ import {
   ImageIcon,
   Lightbulb,
   MessageSquare,
-  MoreHorizontal,
   Paperclip,
   PenLine,
   Send,
@@ -27,6 +26,7 @@ import { usePathname } from "next/navigation";
 import {
   ChangeEvent,
   FormEvent,
+  KeyboardEvent,
   type RefObject,
   useEffect,
   useRef,
@@ -72,8 +72,8 @@ const categories: Array<{
   },
   {
     value: "bug",
-    label: "Report bug",
-    placeholder: "What broke, and what were you trying to do?",
+    label: "Report issue",
+    placeholder: "What happened, and what were you trying to do?",
     icon: Bug,
   },
   {
@@ -102,26 +102,28 @@ const categories: Array<{
   },
   {
     value: "rating",
-    label: "Rate app",
-    placeholder: "Add a short note with your rating...",
+    label: "Rate DrNote",
+    placeholder: "Add a short note with your DrNote rating...",
     icon: ThumbsUp,
   },
 ];
 
-const ticketCategoryValues: SupportCategory[] = [
-  "bug",
-  "suggest_exam",
-  "suggest_feature",
-];
-const ideaCategoryValues: SupportCategory[] = ["feedback", "review", "rating"];
-
-export function SupportWidget() {
+export function SupportWidget({
+  contactEmail,
+  userName,
+}: {
+  contactEmail?: string;
+  userName?: string;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [threadId, setThreadId] = useState<Id<"supportThreads"> | null>(null);
   const [category, setCategory] = useState<SupportCategory>("message");
+  const [selectedDetail, setSelectedDetail] = useState<SupportCategory | null>(
+    null,
+  );
   const [draft, setDraft] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(contactEmail ?? "");
   const [rating, setRating] = useState(0);
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -178,6 +180,7 @@ export function SupportWidget() {
   function pickCategory(nextCategory: SupportCategory) {
     const next = categories.find((item) => item.value === nextCategory) ?? categories[0];
     setCategory(next.value);
+    setSelectedDetail(next.value);
     if (next.value === "rating" || next.value === "review") {
       setRating((current) => current || 5);
     } else {
@@ -189,10 +192,22 @@ export function SupportWidget() {
   function resetThread() {
     window.localStorage.removeItem(storageKey);
     setThreadId(null);
+    setSelectedDetail(null);
     setDraft("");
     setRating(0);
     setError("");
     setPendingAssistant(false);
+  }
+
+  function goBack() {
+    if (threadId) {
+      resetThread();
+      return;
+    }
+    setSelectedDetail(null);
+    setDraft("");
+    setRating(0);
+    setError("");
   }
 
   function onSelectImages(event: ChangeEvent<HTMLInputElement>) {
@@ -263,6 +278,10 @@ export function SupportWidget() {
       })) ?? [];
     const localAttachments = attachments;
     const localRating = messageRating;
+    const resolvedEmail = email || extractEmail(message) || contactEmail || "";
+    if (resolvedEmail && resolvedEmail !== email) {
+      setEmail(resolvedEmail);
+    }
 
     setSubmitting(true);
     setPendingAssistant(true);
@@ -279,7 +298,7 @@ export function SupportWidget() {
         await addUserMessage({
           threadId: activeThreadId,
           message,
-          email,
+          email: resolvedEmail || undefined,
           category,
           rating: messageRating || undefined,
           attachments: uploadedAttachments,
@@ -288,7 +307,7 @@ export function SupportWidget() {
         activeThreadId = await createThread({
           category,
           message,
-          email,
+          email: resolvedEmail || undefined,
           rating: messageRating || undefined,
           attachments: uploadedAttachments,
           pathname,
@@ -303,6 +322,8 @@ export function SupportWidget() {
         category,
         message,
         rating: messageRating || undefined,
+        hasContactEmail: Boolean(resolvedEmail),
+        userName,
         history,
         attachments: uploadedAttachments,
       });
@@ -350,21 +371,24 @@ export function SupportWidget() {
           )}
         >
           <SupportHeader
-            hasThread={Boolean(threadId)}
-            onBack={resetThread}
+            canGoBack={Boolean(threadId || selectedDetail)}
+            onBack={goBack}
             onClose={() => setOpen(false)}
           />
 
-          {!threadId ? (
+          {!threadId && !selectedDetail ? (
             <HomePanel
               activeCategory={category}
+              onPickCategory={pickCategory}
+              userName={userName}
+            />
+          ) : !threadId ? (
+            <DetailPanel
+              activeCategory={category}
               draft={draft}
-              email={email}
               error={error}
               onAttachmentClick={() => fileInputRef.current?.click()}
               onDraftChange={setDraft}
-              onEmailChange={setEmail}
-              onPickCategory={pickCategory}
               onRemoveAttachment={removeAttachment}
               onRatingChange={setRating}
               onSubmit={submitMessage}
@@ -377,12 +401,10 @@ export function SupportWidget() {
             <ChatPanel
               activeCategory={category}
               draft={draft}
-              email={email}
               error={error}
               messages={threadResult?.messages ?? []}
               onAttachmentClick={() => fileInputRef.current?.click()}
               onDraftChange={setDraft}
-              onEmailChange={setEmail}
               onPickCategory={pickCategory}
               onRemoveAttachment={removeAttachment}
               onRatingChange={setRating}
@@ -411,19 +433,19 @@ export function SupportWidget() {
 }
 
 function SupportHeader({
-  hasThread,
+  canGoBack,
   onBack,
   onClose,
 }: {
-  hasThread: boolean;
+  canGoBack: boolean;
   onBack: () => void;
   onClose: () => void;
 }) {
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-5 py-4">
-      {hasThread ? (
+      {canGoBack ? (
         <button
-          aria-label="Start a new support chat"
+          aria-label="Back"
           className="grid size-9 place-items-center rounded-xl text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950"
           onClick={onBack}
           type="button"
@@ -438,17 +460,7 @@ function SupportHeader({
         <h2 className="truncate text-lg font-bold tracking-normal">
           DrNote Support
         </h2>
-        <p className="truncate text-sm font-medium text-zinc-500">
-          The team can also help
-        </p>
       </div>
-      <button
-        aria-label="Support options"
-        className="grid size-9 place-items-center rounded-xl text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950"
-        type="button"
-      >
-        <MoreHorizontal className="size-5" />
-      </button>
       <button
         aria-label="Close support"
         className="grid size-9 place-items-center rounded-xl text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950"
@@ -463,13 +475,56 @@ function SupportHeader({
 
 function HomePanel(props: {
   activeCategory: SupportCategory;
+  onPickCategory: (category: SupportCategory) => void;
+  userName?: string;
+}) {
+  const greeting = props.userName?.trim()
+    ? `Hi ${props.userName.trim()}, how can we help?`
+    : "Hi, how can we help?";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-[#f4f8f6]">
+      <div className="flex-1 overflow-y-auto px-4 py-5">
+        <div className="mx-auto mb-5 max-w-[360px] text-center">
+          <p className="text-[26px] font-black leading-tight text-zinc-950">
+            {greeting}
+          </p>
+        </div>
+
+        <div className="grid gap-3">
+          {categories.map((item) => (
+            <QuickAction
+              active={props.activeCategory === item.value}
+              key={item.value}
+              item={item}
+              onClick={() => props.onPickCategory(item.value)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailPanel({
+  activeCategory,
+  draft,
+  error,
+  onAttachmentClick,
+  onDraftChange,
+  onRemoveAttachment,
+  onRatingChange,
+  onSubmit,
+  rating,
+  selectedAttachments,
+  submitting,
+  textareaRef,
+}: {
+  activeCategory: SupportCategory;
   draft: string;
-  email: string;
   error: string;
   onAttachmentClick: () => void;
   onDraftChange: (value: string) => void;
-  onEmailChange: (value: string) => void;
-  onPickCategory: (category: SupportCategory) => void;
   onRemoveAttachment: (index: number) => void;
   onRatingChange: (rating: number) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -478,77 +533,41 @@ function HomePanel(props: {
   submitting: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
+  const selected = getCategory(activeCategory);
+  const detail = getCategoryDetail(activeCategory);
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#f3f0ff]">
-      <div className="flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto mb-5 max-w-[330px] text-center">
-          <p className="text-[28px] font-black leading-tight text-[#24233f]">
-            How can we help?
-          </p>
-        </div>
-
-        <button
-          className={cn(
-            "mb-3 flex w-full items-center justify-between rounded-2xl border bg-white px-4 py-4 text-left shadow-[0_8px_24px_rgba(46,42,85,0.08)] transition",
-            props.activeCategory === "message"
-              ? "border-zinc-950"
-              : "border-white hover:border-zinc-200",
-          )}
-          onClick={() => props.onPickCategory("message")}
-          type="button"
-        >
-          <span className="text-base font-bold text-zinc-950">Ask a question</span>
-          <Send className="size-5 text-zinc-500" />
-        </button>
-
-        <div className="mb-3 rounded-2xl border border-white bg-white p-3 shadow-[0_8px_24px_rgba(46,42,85,0.08)]">
-          <p className="px-1 pb-3 text-base font-bold text-zinc-950">
-            Submit ticket
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {ticketCategoryValues.map((categoryValue, index) => {
-              const item = getCategory(categoryValue);
-              return (
-                <QuickAction
-                  active={props.activeCategory === item.value}
-                  className={index === 0 ? "col-span-2" : undefined}
-                  key={item.value}
-                  item={item}
-                  onClick={() => props.onPickCategory(item.value)}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white bg-white p-3 shadow-[0_8px_24px_rgba(46,42,85,0.08)]">
-          <p className="px-1 pb-3 text-base font-bold text-zinc-950">
-            Share an idea
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {ideaCategoryValues.map((categoryValue, index) => {
-              const item = getCategory(categoryValue);
-              return (
-                <QuickAction
-                  active={props.activeCategory === item.value}
-                  className={index === 0 ? "col-span-2" : undefined}
-                  key={item.value}
-                  item={item}
-                  onClick={() => props.onPickCategory(item.value)}
-                />
-              );
-            })}
+    <div className="flex min-h-0 flex-1 flex-col bg-white">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="rounded-2xl bg-zinc-100 px-4 py-4">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-zinc-950 shadow-sm">
+              <selected.icon className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-lg font-black text-zinc-950">{selected.label}</h3>
+              <p className="mt-1 text-sm font-medium leading-6 text-zinc-600">
+                {detail}
+              </p>
+            </div>
           </div>
         </div>
       </div>
-      <div className="bg-white/80 p-4 pt-3 backdrop-blur">
+      <div className="border-t border-zinc-200 p-4">
         <SupportComposer
-          {...props}
-          placeholder={
-            categories.find((item) => item.value === props.activeCategory)
-              ?.placeholder ?? "Send us a message..."
-          }
-          showRating={isRatingCategory(props.activeCategory)}
+          draft={draft}
+          error={error}
+          onAttachmentClick={onAttachmentClick}
+          onDraftChange={onDraftChange}
+          onRemoveAttachment={onRemoveAttachment}
+          onRatingChange={onRatingChange}
+          onSubmit={onSubmit}
+          placeholder={selected.placeholder}
+          rating={rating}
+          selectedAttachments={selectedAttachments}
+          showRating={isRatingCategory(activeCategory)}
+          submitting={submitting}
+          textareaRef={textareaRef}
         />
       </div>
     </div>
@@ -558,12 +577,10 @@ function HomePanel(props: {
 function ChatPanel({
   activeCategory,
   draft,
-  email,
   error,
   messages,
   onAttachmentClick,
   onDraftChange,
-  onEmailChange,
   onPickCategory,
   onRemoveAttachment,
   onRatingChange,
@@ -577,7 +594,6 @@ function ChatPanel({
 }: {
   activeCategory: SupportCategory;
   draft: string;
-  email: string;
   error: string;
   messages: Array<{
     _id: string;
@@ -592,7 +608,6 @@ function ChatPanel({
   }>;
   onAttachmentClick: () => void;
   onDraftChange: (value: string) => void;
-  onEmailChange: (value: string) => void;
   onPickCategory: (category: SupportCategory) => void;
   onRemoveAttachment: (index: number) => void;
   onRatingChange: (rating: number) => void;
@@ -638,11 +653,9 @@ function ChatPanel({
         ) : null}
         <SupportComposer
           draft={draft}
-          email={email}
           error={error}
           onAttachmentClick={onAttachmentClick}
           onDraftChange={onDraftChange}
-          onEmailChange={onEmailChange}
           onRemoveAttachment={onRemoveAttachment}
           onRatingChange={onRatingChange}
           onSubmit={onSubmit}
@@ -672,11 +685,11 @@ function AgentBubble({ compact = false }: { compact?: boolean }) {
       >
         Hi, I&apos;m DrNote Support.
         <br />
-        Ask a question, report a bug, suggest a feature, or leave a review.
+        Ask a question, report an issue, suggest a feature, or leave a review.
       </div>
       <div className="mt-2 flex items-center gap-2 px-1 text-xs font-semibold text-zinc-500">
         <span>DrNote</span>
-        <span>AI Agent</span>
+        <span>Agent</span>
         <span>Just now</span>
       </div>
     </div>
@@ -685,29 +698,29 @@ function AgentBubble({ compact = false }: { compact?: boolean }) {
 
 function QuickAction({
   active,
-  className,
   item,
   onClick,
 }: {
   active: boolean;
-  className?: string;
   item: (typeof categories)[number];
   onClick: () => void;
 }) {
   return (
     <button
       className={cn(
-        "flex min-h-12 items-center gap-2 rounded-xl px-3 text-left text-sm font-semibold transition",
+        "flex min-h-16 w-full items-center justify-between rounded-2xl border bg-white px-4 py-4 text-left transition",
         active
-          ? "bg-zinc-950 text-white shadow-[0_8px_18px_rgba(0,0,0,0.16)]"
-          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 hover:text-zinc-950",
-        className,
+          ? "border-emerald-800 text-zinc-950 shadow-[0_10px_26px_rgba(6,78,59,0.14)]"
+          : "border-transparent text-zinc-950 shadow-[0_8px_24px_rgba(15,23,42,0.07)] hover:border-emerald-200 hover:shadow-[0_10px_28px_rgba(15,23,42,0.1)]",
       )}
       onClick={onClick}
       type="button"
     >
-      <item.icon className="size-4 shrink-0" />
-      <span className="min-w-0 leading-5">{item.label}</span>
+      <span className="flex min-w-0 items-center gap-3">
+        <item.icon className="size-5 shrink-0 text-zinc-500" />
+        <span className="min-w-0 text-base font-bold leading-5">{item.label}</span>
+      </span>
+      <Send className="size-5 shrink-0 text-zinc-500" />
     </button>
   );
 }
@@ -743,7 +756,7 @@ function MessageBubble({
               : "rounded-[24px] bg-zinc-100 text-zinc-950",
         )}
       >
-        {message.body}
+        <SupportMarkdownText text={message.body} />
         {message.rating ? (
           <StarRatingDisplay className="mt-2" rating={message.rating} />
         ) : null}
@@ -771,7 +784,7 @@ function MessageBubble({
         ) : null}
       </div>
       <div className="mt-1 px-1 text-[11px] font-semibold text-zinc-500">
-        {fromUser ? "You" : "DrNote AI Agent"}
+        {fromUser ? "You" : "DrNote Agent"}
       </div>
     </div>
   );
@@ -779,11 +792,9 @@ function MessageBubble({
 
 function SupportComposer({
   draft,
-  email,
   error,
   onAttachmentClick,
   onDraftChange,
-  onEmailChange,
   onRemoveAttachment,
   onRatingChange,
   onSubmit,
@@ -795,11 +806,9 @@ function SupportComposer({
   textareaRef,
 }: {
   draft: string;
-  email: string;
   error: string;
   onAttachmentClick: () => void;
   onDraftChange: (value: string) => void;
-  onEmailChange: (value: string) => void;
   onRemoveAttachment: (index: number) => void;
   onRatingChange: (rating: number) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -841,19 +850,6 @@ function SupportComposer({
       {showRating ? (
         <StarRatingInput rating={rating} onRatingChange={onRatingChange} />
       ) : null}
-      <label className="block rounded-2xl border border-zinc-200 bg-white px-3 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.05)] focus-within:border-zinc-400">
-        <span className="block text-[11px] font-bold uppercase tracking-normal text-zinc-500">
-          Contact email
-        </span>
-        <input
-          aria-label="Contact email"
-          className="mt-1 h-7 w-full bg-transparent text-sm font-semibold text-zinc-950 outline-none placeholder:text-zinc-400"
-          onChange={(event) => onEmailChange(event.target.value)}
-          placeholder="you@example.com"
-          type="email"
-          value={email}
-        />
-      </label>
       <div className="rounded-[22px] border border-zinc-200 bg-white p-2.5 shadow-[0_10px_35px_rgba(15,23,42,0.07)] focus-within:border-zinc-400">
         <div className="flex items-end gap-2">
           <button
@@ -868,6 +864,7 @@ function SupportComposer({
             ref={textareaRef}
             className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-6 text-zinc-950 outline-none placeholder:text-zinc-400"
             onChange={(event) => onDraftChange(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
             placeholder={placeholder}
             rows={1}
             value={draft}
@@ -893,10 +890,104 @@ function SupportComposer({
   );
 }
 
+function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
+}
+
+function SupportMarkdownText({ text }: { text: string }) {
+  const blocks = normalizeSupportMarkdown(text).split(/\n{2,}/);
+
+  return (
+    <div className="space-y-2 [&_a]:font-semibold [&_a]:text-emerald-800 [&_a]:underline [&_a]:underline-offset-4 [&_li]:leading-6 [&_p]:leading-6">
+      {blocks.map((block, blockIndex) => {
+        const lines = block.split("\n").filter(Boolean);
+        const isList = lines.every((line) => /^[-*]\s+/.test(line));
+        if (isList) {
+          return (
+            <ul
+              className="ms-4 list-disc space-y-1 marker:text-zinc-500"
+              key={`${block}-${blockIndex}`}
+            >
+              {lines.map((line, lineIndex) => (
+                <li key={`${line}-${lineIndex}`}>
+                  <InlineMarkdown text={line.replace(/^[-*]\s+/, "")} />
+                </li>
+              ))}
+            </ul>
+          );
+        }
+
+        return (
+          <p key={`${block}-${blockIndex}`}>
+            <InlineMarkdown text={lines.join(" ")} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  const parts = text.split(
+    /(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s]+)/g,
+  );
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        const bold = part.match(/^\*\*([^*]+)\*\*$/);
+        const markdownLink = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+        const bareUrl = part.match(/^(https?:\/\/[^\s).,!?;:]+(?:[^\s).,!?;:]|\/))([).,!?;:]*)$/);
+        if (bold) {
+          return <strong key={`${part}-${index}`}>{bold[1]}</strong>;
+        }
+        if (markdownLink) {
+          return (
+            <a
+              href={markdownLink[2]}
+              key={`${part}-${index}`}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {markdownLink[1]}
+            </a>
+          );
+        }
+        if (bareUrl) {
+          return (
+            <span key={`${part}-${index}`}>
+              <a href={bareUrl[1]} rel="noreferrer" target="_blank">
+                {bareUrl[1]}
+              </a>
+              {bareUrl[2]}
+            </span>
+          );
+        }
+        return part;
+      })}
+    </>
+  );
+}
+
+function normalizeSupportMarkdown(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\s+\*\s+(?=[A-Z0-9])/g, "\n- ")
+    .replace(/^\*\s+/gm, "- ")
+    .trim();
+}
+
 async function getAssistantReply(args: {
   category: SupportCategory;
   message: string;
   rating?: number;
+  hasContactEmail: boolean;
+  userName?: string;
   history: Array<{ role: string; body: string }>;
   attachments: UploadedAttachment[];
 }) {
@@ -907,6 +998,8 @@ async function getAssistantReply(args: {
       category: args.category,
       message: args.message,
       rating: args.rating,
+      hasContactEmail: args.hasContactEmail,
+      userName: args.userName,
       history: args.history,
       attachments: args.attachments.map((attachment) => ({
         name: attachment.name,
@@ -930,6 +1023,35 @@ async function getAssistantReply(args: {
 
 function isRatingCategory(category: SupportCategory) {
   return category === "review" || category === "rating";
+}
+
+function extractEmail(message: string) {
+  return (
+    message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]?.toLowerCase() ??
+    ""
+  );
+}
+
+function getCategoryDetail(category: SupportCategory) {
+  if (category === "bug") {
+    return "Tell us what happened, what you expected, and where it happened.";
+  }
+  if (category === "suggest_exam") {
+    return "Share the exam name, country or institution, and any source material.";
+  }
+  if (category === "suggest_feature") {
+    return "Describe the workflow this should improve and how urgent it is.";
+  }
+  if (category === "feedback") {
+    return "Send the product feedback you want the team to see.";
+  }
+  if (category === "review") {
+    return "Write a short review and rating for the team.";
+  }
+  if (category === "rating") {
+    return "Choose a rating and add any detail that explains it.";
+  }
+  return "Ask about uploads, study modes, billing, or anything confusing.";
 }
 
 function StarRatingInput({

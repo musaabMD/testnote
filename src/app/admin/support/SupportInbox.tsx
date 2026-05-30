@@ -6,12 +6,34 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, CheckCircle2, Clock3, Inbox, Send, Star } from "lucide-react";
+import {
+  ArrowLeft,
+  Bug,
+  CheckCircle2,
+  Clock3,
+  GraduationCap,
+  Inbox,
+  Lightbulb,
+  MessageSquare,
+  PenLine,
+  Send,
+  Star,
+  ThumbsUp,
+} from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 
 type StatusFilter = "all" | "open" | "in_progress" | "resolved";
 type SupportStatus = "open" | "in_progress" | "resolved";
+type SupportCategory =
+  | "all"
+  | "message"
+  | "bug"
+  | "feedback"
+  | "review"
+  | "suggest_exam"
+  | "suggest_feature"
+  | "rating";
 
 const statuses: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -20,15 +42,76 @@ const statuses: Array<{ value: StatusFilter; label: string }> = [
   { value: "resolved", label: "Resolved" },
 ];
 
+const categories: Array<{
+  value: SupportCategory;
+  label: string;
+  description: string;
+  icon: typeof Inbox;
+}> = [
+  {
+    value: "all",
+    label: "All support",
+    description: "Every support thread",
+    icon: Inbox,
+  },
+  {
+    value: "message",
+    label: "Questions",
+    description: "Ask a question",
+    icon: MessageSquare,
+  },
+  {
+    value: "bug",
+    label: "Issues",
+    description: "Report issue",
+    icon: Bug,
+  },
+  {
+    value: "feedback",
+    label: "Feedback",
+    description: "Leave feedback",
+    icon: PenLine,
+  },
+  {
+    value: "suggest_exam",
+    label: "Suggested exams",
+    description: "Suggest exam",
+    icon: GraduationCap,
+  },
+  {
+    value: "suggest_feature",
+    label: "Feature ideas",
+    description: "Suggest feature",
+    icon: Lightbulb,
+  },
+  {
+    value: "review",
+    label: "Reviews",
+    description: "Write review",
+    icon: Star,
+  },
+  {
+    value: "rating",
+    label: "DrNote ratings",
+    description: "Rate DrNote",
+    icon: ThumbsUp,
+  },
+];
+
 export function SupportInbox() {
   const [status, setStatus] = useState<StatusFilter>("open");
+  const [category, setCategory] = useState<SupportCategory>("all");
   const [selectedThreadId, setSelectedThreadId] =
     useState<Id<"supportThreads"> | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const threads = useQuery(api.support.listThreadsForAdmin, {
     status,
-    limit: 80,
+    category,
+    limit: 300,
+  });
+  const overview = useQuery(api.support.getSupportOverviewForAdmin, {
+    limit: 700,
   });
   const messages = useQuery(
     api.support.listMessagesForAdmin,
@@ -39,6 +122,8 @@ export function SupportInbox() {
   const selectedThread = useMemo(() => {
     return threads?.find((thread) => thread._id === selectedThreadId) ?? threads?.[0];
   }, [selectedThreadId, threads]);
+
+  const selectedCategory = getCategoryConfig(category);
 
   async function updateThread(nextStatus: SupportStatus, event?: FormEvent) {
     event?.preventDefault();
@@ -74,7 +159,7 @@ export function SupportInbox() {
               Support inbox
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-normal">
-              User chats and issues
+              User chats, issues, reviews, and ratings
             </h1>
           </div>
 
@@ -97,11 +182,126 @@ export function SupportInbox() {
           </div>
         </header>
 
+        <section className="grid gap-3 md:grid-cols-4">
+          <MetricCard
+            label="Threads"
+            value={overview ? overview.total.toLocaleString() : "..."}
+            sublabel="Latest support records"
+          />
+          <MetricCard
+            label="Open"
+            value={overview ? overview.byStatus.open.toLocaleString() : "..."}
+            sublabel="Needs response"
+          />
+          <MetricCard
+            label="Overall Rating"
+            value={
+              overview?.averageRating
+                ? `${overview.averageRating.toFixed(1)}/5`
+                : "No ratings"
+            }
+            sublabel={
+              overview
+                ? `${overview.ratingCount.toLocaleString()} rating threads`
+                : "Loading"
+            }
+          />
+          <MetricCard
+            label="Selected"
+            value={threads ? threads.length.toLocaleString() : "..."}
+            sublabel={`${selectedCategory.label} · ${status.replace("_", " ")}`}
+          />
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {categories.map((item) => {
+            const Icon = item.icon;
+            const count =
+              item.value === "all"
+                ? overview?.total
+                : overview?.byCategory[item.value];
+            return (
+              <button
+                className={cn(
+                  "rounded-lg border p-4 text-left transition",
+                  category === item.value
+                    ? "border-violet-300 bg-violet-300 text-zinc-950"
+                    : "border-white/10 bg-white/[0.04] text-zinc-200 hover:bg-white/[0.08]",
+                )}
+                key={item.value}
+                onClick={() => {
+                  setCategory(item.value);
+                  setSelectedThreadId(null);
+                }}
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <Icon className="size-5" />
+                  <span className="text-2xl font-semibold">
+                    {typeof count === "number" ? count.toLocaleString() : "..."}
+                  </span>
+                </div>
+                <p className="mt-4 text-sm font-semibold">{item.label}</p>
+                <p
+                  className={cn(
+                    "mt-1 text-xs",
+                    category === item.value ? "text-zinc-700" : "text-zinc-500",
+                  )}
+                >
+                  {item.description}
+                </p>
+              </button>
+            );
+          })}
+        </section>
+
+        <section className="grid gap-3 lg:grid-cols-4">
+          <InsightList
+            items={overview?.recentReviews ?? []}
+            title="Latest reviews and ratings"
+            onSelect={(threadId) => {
+              setCategory("all");
+              setStatus("all");
+              setSelectedThreadId(threadId);
+            }}
+          />
+          <InsightList
+            items={overview?.recentBugs ?? []}
+            title="Latest issues"
+            onSelect={(threadId) => {
+              setCategory("bug");
+              setStatus("all");
+              setSelectedThreadId(threadId);
+            }}
+          />
+          <InsightList
+            items={overview?.recentExamSuggestions ?? []}
+            title="Suggested exams"
+            onSelect={(threadId) => {
+              setCategory("suggest_exam");
+              setStatus("all");
+              setSelectedThreadId(threadId);
+            }}
+          />
+          <InsightList
+            items={overview?.recentFeatureSuggestions ?? []}
+            title="Feature ideas"
+            onSelect={(threadId) => {
+              setCategory("suggest_feature");
+              setStatus("all");
+              setSelectedThreadId(threadId);
+            }}
+          />
+        </section>
+
         <section className="grid min-h-[680px] overflow-hidden rounded-lg border border-white/10 bg-zinc-900/70 lg:grid-cols-[390px_1fr]">
           <aside className="border-b border-white/10 lg:border-b-0 lg:border-r">
-            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-sm font-semibold text-zinc-300">
-              <Inbox className="size-4" />
-              {threads ? `${threads.length} threads` : "Loading"}
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-semibold text-zinc-300">
+              <span className="inline-flex items-center gap-2">
+                <selectedCategory.icon className="size-4" />
+                {selectedCategory.label}
+              </span>
+              <span>{threads ? `${threads.length} threads` : "Loading"}</span>
             </div>
             <div className="max-h-[640px] overflow-y-auto">
               {threads?.map((thread) => (
@@ -126,6 +326,7 @@ export function SupportInbox() {
                     <StatusBadge status={thread.status} />
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                    <CategoryBadge category={thread.category} />
                     <span>{thread.email ?? thread.clerkUserId ?? "Anonymous"}</span>
                     <span>{formatDate(thread.updatedAt)}</span>
                   </div>
@@ -144,6 +345,7 @@ export function SupportInbox() {
                         {selectedThread.subject}
                       </h2>
                       <StatusBadge status={selectedThread.status} />
+                      <CategoryBadge category={selectedThread.category} />
                       {selectedThread.priority === "high" ? (
                         <Badge className="bg-rose-400 text-zinc-950">High</Badge>
                       ) : null}
@@ -266,6 +468,76 @@ export function SupportInbox() {
   );
 }
 
+function MetricCard({
+  label,
+  sublabel,
+  value,
+}: {
+  label: string;
+  sublabel: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-xs font-semibold uppercase text-zinc-500">{label}</p>
+      <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+      <p className="mt-1 text-xs text-zinc-500">{sublabel}</p>
+    </div>
+  );
+}
+
+function InsightList({
+  items,
+  onSelect,
+  title,
+}: {
+  items: Array<{
+    _id: Id<"supportThreads">;
+    subject: string;
+    summary: string;
+    rating?: number;
+    updatedAt: number;
+  }>;
+  onSelect: (threadId: Id<"supportThreads">) => void;
+  title: string;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <div className="mt-3 grid gap-2">
+        {items.length ? (
+          items.slice(0, 5).map((item) => (
+            <button
+              className="rounded-md border border-white/10 bg-zinc-950/40 p-3 text-left transition hover:bg-white/10"
+              key={item._id}
+              onClick={() => onSelect(item._id)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="line-clamp-1 text-xs font-semibold text-zinc-100">
+                  {item.subject}
+                </p>
+                {item.rating ? (
+                  <span className="shrink-0 text-xs font-semibold text-amber-300">
+                    {item.rating}/5
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
+                {item.summary}
+              </p>
+            </button>
+          ))
+        ) : (
+          <p className="rounded-md border border-white/10 bg-zinc-950/30 p-3 text-xs text-zinc-500">
+            No records yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RatingBadge({ rating }: { rating: number }) {
   return (
     <Badge className="bg-amber-300 text-zinc-950">
@@ -297,6 +569,15 @@ function StatusBadge({ status }: { status: SupportStatus }) {
         ? "bg-sky-300 text-zinc-950"
         : "bg-amber-300 text-zinc-950";
   return <Badge className={className}>{status.replace("_", " ")}</Badge>;
+}
+
+function CategoryBadge({ category }: { category: Exclude<SupportCategory, "all"> }) {
+  const item = getCategoryConfig(category);
+  return <Badge className="bg-white/10 text-zinc-200">{item.label}</Badge>;
+}
+
+function getCategoryConfig(category: SupportCategory) {
+  return categories.find((item) => item.value === category) ?? categories[0];
 }
 
 function formatDate(value: number) {

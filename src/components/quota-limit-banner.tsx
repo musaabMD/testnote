@@ -21,15 +21,21 @@ type QuotaLimitBannerProps = {
   message: string;
   className?: string;
   compact?: boolean;
+  modalOnly?: boolean;
+  surface?: string;
 };
 
 export function QuotaLimitBanner({
   message,
   className = "",
   compact = false,
+  modalOnly = false,
+  surface,
 }: QuotaLimitBannerProps) {
   const classified = classifyUsageError(message);
   const trackedSeenRef = useRef(false);
+  const eventSurface =
+    surface ?? (compact ? "compact_quota_banner" : "quota_banner");
   const isActionable =
     classified.kind === "plan_quota" ||
     classified.kind === "billing_inactive" ||
@@ -54,7 +60,7 @@ export function QuotaLimitBanner({
       captureConversionEvent("billing_inactive_seen", {
         billing_status: "inactive",
         limit_type: classified.kind,
-        surface: compact ? "compact_quota_banner" : "quota_banner",
+        surface: eventSurface,
       });
       return;
     }
@@ -62,10 +68,10 @@ export function QuotaLimitBanner({
     if (classified.kind === "plan_quota") {
       captureConversionEvent("quota_limit_seen", {
         limit_type: classified.kind,
-        surface: compact ? "compact_quota_banner" : "quota_banner",
+        surface: eventSurface,
       });
     }
-  }, [classified.kind, compact]);
+  }, [classified.kind, eventSurface]);
 
   if (compact && !isActionable) {
     return (
@@ -78,6 +84,81 @@ export function QuotaLimitBanner({
     const promptAccent = isBillingInactive
       ? "from-violet-600 to-blue-600"
       : "from-blue-600 to-cyan-600";
+    const dialogContent = (
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <div className={cn("h-1.5 bg-gradient-to-r", promptAccent)} />
+        <div className="p-5">
+          <DialogHeader>
+            <div
+              className={cn(
+                "flex size-10 items-center justify-center rounded-xl text-white",
+                isBillingInactive ? "bg-violet-700" : "bg-blue-700",
+              )}
+            >
+              <CreditCard className="size-5" />
+            </div>
+            <DialogTitle className="text-xl font-bold tracking-normal text-slate-950">
+              {classified.title}
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed text-slate-600">
+              {isBillingInactive
+                ? "Update billing to keep extracting questions from your files."
+                : "Choose a plan to keep extracting questions from your files."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-5 grid gap-2 text-sm text-slate-700">
+            {[
+              "AI question extraction",
+              "Larger upload and monthly limits",
+              "Study tools for your saved files",
+            ].map((item) => (
+              <div className="flex items-center gap-2" key={item}>
+                <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <DialogFooter className="bg-slate-50">
+          <DialogClose
+            render={
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                type="button"
+              />
+            }
+          >
+            Not now
+          </DialogClose>
+          {classified.primaryHref && classified.primaryLabel ? (
+            <Link
+              className={cn(
+                "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-white transition-colors",
+                isBillingInactive
+                  ? "bg-violet-700 hover:bg-violet-800"
+                  : "bg-blue-700 hover:bg-blue-800",
+              )}
+              href={classified.primaryHref}
+              onClick={() => {
+                captureConversionEvent("quota_upgrade_clicked", {
+                  limit_type: classified.kind,
+                  surface: modalOnly ? `${eventSurface}_dialog` : "quota_dialog",
+                });
+              }}
+            >
+              {classified.primaryLabel}
+              <ArrowRight className="size-4" />
+            </Link>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    );
+
+    if (modalOnly) {
+      return <Dialog defaultOpen>{dialogContent}</Dialog>;
+    }
 
     return (
       <Dialog defaultOpen={!compact}>
@@ -121,7 +202,7 @@ export function QuotaLimitBanner({
                   onClick={() => {
                     captureConversionEvent("quota_upgrade_clicked", {
                       limit_type: classified.kind,
-                      surface: compact ? "compact_quota_banner" : "quota_banner",
+                      surface: eventSurface,
                     });
                   }}
                   type="button"
@@ -133,75 +214,7 @@ export function QuotaLimitBanner({
           ) : null}
         </div>
 
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
-          <div className={cn("h-1.5 bg-gradient-to-r", promptAccent)} />
-          <div className="p-5">
-            <DialogHeader>
-              <div
-                className={cn(
-                  "flex size-10 items-center justify-center rounded-xl text-white",
-                  isBillingInactive ? "bg-violet-700" : "bg-blue-700",
-                )}
-              >
-                <CreditCard className="size-5" />
-              </div>
-              <DialogTitle className="text-xl font-bold tracking-normal text-slate-950">
-                {classified.title}
-              </DialogTitle>
-              <DialogDescription className="text-sm leading-relaxed text-slate-600">
-                {isBillingInactive
-                  ? "Update billing to keep extracting questions from your files."
-                  : "Choose a plan to keep extracting questions from your files."}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="mt-5 grid gap-2 text-sm text-slate-700">
-              {[
-                "AI question extraction",
-                "Larger upload and monthly limits",
-                "Study tools for your saved files",
-              ].map((item) => (
-                <div className="flex items-center gap-2" key={item}>
-                  <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <DialogFooter className="bg-slate-50">
-            <DialogClose
-              render={
-                <button
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100"
-                  type="button"
-                />
-              }
-            >
-              Not now
-            </DialogClose>
-            {classified.primaryHref && classified.primaryLabel ? (
-              <Link
-                className={cn(
-                  "inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold text-white transition-colors",
-                  isBillingInactive
-                    ? "bg-violet-700 hover:bg-violet-800"
-                    : "bg-blue-700 hover:bg-blue-800",
-                )}
-                href={classified.primaryHref}
-                onClick={() => {
-                  captureConversionEvent("quota_upgrade_clicked", {
-                    limit_type: classified.kind,
-                    surface: "quota_dialog",
-                  });
-                }}
-              >
-                {classified.primaryLabel}
-                <ArrowRight className="size-4" />
-              </Link>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
+        {dialogContent}
       </Dialog>
     );
   }

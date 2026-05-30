@@ -8,12 +8,17 @@ import {
   type SourceChunk,
 } from "@/lib/highlightable-source";
 import { convex } from "@/lib/convex-client";
+import { uploadSourceFileToConvex } from "@/lib/convex-source-file.client";
 import { enrichQuestionsWithImages } from "@/lib/pdf-question-images";
 import { saveSourceFile } from "@/lib/pdf-source-store";
 import { loadPdfQuizSettings } from "@/lib/quiz-settings";
 import { loadFiles, saveFileQueue } from "@/lib/pdf-view-storage";
 import { buildRagDocumentText, buildRagSourceChunks } from "@/lib/source-rag";
-import { assertSupportedUploadFiles } from "@/lib/upload-file-types";
+import {
+  assertSupportedUploadFiles,
+  inferUploadMimeTypeFromName,
+} from "@/lib/upload-file-types";
+import { logUploadPipeline } from "@/lib/upload-pipeline-trace";
 import { captureConversionEvent } from "@/lib/conversion-analytics";
 import {
   patchUploadProgressRecord,
@@ -34,7 +39,10 @@ export type ExtractionApiResponse = PdfMcqResult & {
   failureReason?: string;
 };
 
+const VERCEL_FUNCTION_BODY_SAFE_BYTES = 4 * 1024 * 1024;
+
 type ExtractionJobStartResponse = {
+  uploadTraceId?: string;
   jobId: string;
   status: "queued" | "processing";
   fileHash: string;
@@ -47,6 +55,7 @@ type ExtractionJobStartResponse = {
 };
 
 type ExtractionJobPollResponse = {
+  uploadTraceId?: string;
   jobId: string;
   status: "queued" | "processing" | "ready" | "failed";
   progressPagesProcessed: number;
@@ -86,6 +95,10 @@ function sleep(ms: number): Promise<void> {
 function extractionErrorMessage(payload: { error?: string; hint?: string }) {
   const message = payload.error ? payload.error : "File extraction failed.";
   return payload.hint ? `${message} ${payload.hint}` : message;
+}
+
+function isBackgroundExtractionInProgressMessage(message: string) {
+  return /extraction is already processing/i.test(message);
 }
 
 async function readExtractionUploadResponse(
@@ -234,7 +247,10 @@ export async function pollExtractionJob(
   );
 }
 
-async function getPageCountForFile(file: File): Promise<number> {
+async function getPageCountForFile(
+  file: File,
+  arrayBuffer?: ArrayBuffer,
+): Promise<number> {
   if (file.type.startsWith("image/")) return 1;
 
   const isPdf =
@@ -245,11 +261,20 @@ async function getPageCountForFile(file: File): Promise<number> {
   try {
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
-    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pdf = await pdfjs.getDocument({
+      data: arrayBuffer ?? (await file.arrayBuffer()),
+    }).promise;
     return pdf.numPages;
   } catch {
     return 1;
   }
+}
+
+async function sha256ArrayBuffer(arrayBuffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function inferFileExtension(fileName: string, mimeType: string) {
@@ -371,6 +396,7 @@ export async function processPdfUploads(
     addedBy?: string;
     examSlug?: string;
     examName?: string;
+    backgroundOnJobStarted?: boolean;
     onJobStarted?: (record: UploadProgressRecord) => void;
   },
 ): Promise<PdfFileQueueItem[]> {
@@ -385,13 +411,21 @@ export async function processPdfUploads(
   for (const file of supportedFiles) {
     const startedAt = Date.now();
     let failureTracked = false;
+    const uploadTraceId = crypto.randomUUID();
     const uploadProgressId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    console.time(`[upload ${uploadTraceId}] total`);
+    logUploadPipeline(uploadTraceId, "browser_upload_started", {
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      mimeType: file.type || inferFileExtension(file.name, file.type),
+    });
     upsertUploadProgressRecord({
       id: uploadProgressId,
       fileName: file.name,
       fileSize: file.size,
       status: "uploading",
       phase: "checking_file",
+      uploadTraceId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -402,7 +436,10 @@ export async function processPdfUploads(
     });
 
     try {
-      const pageCountPromise = getPageCountForFile(file).then((pageCount) => {
+      const fileBytesPromise = file.arrayBuffer();
+      const pageCountPromise = fileBytesPromise.then((arrayBuffer) =>
+        getPageCountForFile(file, arrayBuffer),
+      ).then((pageCount) => {
         patchUploadProgressRecord(uploadProgressId, {
           phase: "uploading_file",
           totalPages: pageCount,
@@ -410,28 +447,82 @@ export async function processPdfUploads(
         });
         return pageCount;
       });
+      const fileHashPromise = fileBytesPromise.then(sha256ArrayBuffer);
 
       patchUploadProgressRecord(uploadProgressId, {
         phase: "counting_pages",
       });
 
-      const responsePromise = (async () => {
-        const formData = new FormData();
-        formData.append("file", file, safeMultipartFileName(file));
-        formData.append("fileName", file.name);
-        formData.append("extractionMode", loadPdfQuizSettings().extractionMode);
-        return fetch("/api/pdf/mcqs", {
-          method: "POST",
-          body: formData,
-        });
-      })();
-
-      const [pageCount, response] = await Promise.all([
+      const [pageCount, fileHash] = await Promise.all([
         pageCountPromise,
-        responsePromise,
+        fileHashPromise,
       ]);
+      logUploadPipeline(uploadTraceId, "browser_file_prepared", {
+        fileHash,
+        pageCount,
+      });
+
+      patchUploadProgressRecord(uploadProgressId, {
+        phase: "uploading_file",
+        uploadTraceId,
+        fileHash,
+        totalPages: pageCount,
+        progressPagesProcessed: 0,
+      });
+
+      logUploadPipeline(uploadTraceId, "browser_source_upload_start", {
+        fileHash,
+      });
+      const sourceStored = await uploadSourceFileToConvex(convex, file, fileHash);
+      logUploadPipeline(uploadTraceId, "browser_source_upload_done", {
+        fileHash,
+        sourceStored,
+      });
+      logUploadPipeline(uploadTraceId, "browser_api_request_start", {
+        sourceAlreadyStored: sourceStored,
+      });
+      const response = sourceStored
+        ? await fetch("/api/pdf/mcqs", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              uploadTraceId,
+              sourceAlreadyStored: true,
+              fileHash,
+              fileName: file.name,
+              mimeType: file.type || inferFileExtension(file.name, file.type),
+              fileSizeBytes: file.size,
+              pageCount,
+              extractionMode: loadPdfQuizSettings().extractionMode,
+            }),
+          })
+        : await (async () => {
+            if (file.size > VERCEL_FUNCTION_BODY_SAFE_BYTES) {
+              throw new Error(
+                "Could not upload the file directly to storage. Sign in and try again, or upload a smaller file.",
+              );
+            }
+
+            const formData = new FormData();
+            formData.append("file", file, safeMultipartFileName(file));
+            formData.append("fileName", file.name);
+            formData.append("uploadTraceId", uploadTraceId);
+            formData.append("extractionMode", loadPdfQuizSettings().extractionMode);
+            return fetch("/api/pdf/mcqs", {
+              method: "POST",
+              body: formData,
+            });
+          })();
 
       const payload = await readExtractionUploadResponse(response);
+      logUploadPipeline(uploadTraceId, "browser_api_response", {
+        status: response.status,
+        jobId: payload && "jobId" in payload ? payload.jobId : undefined,
+        failureReason:
+          payload && "failureReason" in payload ? payload.failureReason : undefined,
+      });
 
       if (!payload) {
         const message = response.ok
@@ -467,12 +558,20 @@ export async function processPdfUploads(
         const record = patchUploadProgressRecord(uploadProgressId, {
           status: payload.status,
           phase: payload.status === "queued" ? "queued" : "reading_pages",
+          uploadTraceId,
           jobId: payload.jobId,
           fileHash: payload.fileHash,
           totalPages: payload.pageCount ?? pageCount,
           progressPagesProcessed: 0,
         });
+        logUploadPipeline(uploadTraceId, "browser_job_started", {
+          jobId: payload.jobId,
+          status: payload.status,
+        });
         if (record) options?.onJobStarted?.(record);
+        if (options?.backgroundOnJobStarted) {
+          continue;
+        }
       }
 
       const mcqResult =
@@ -498,9 +597,15 @@ export async function processPdfUploads(
       patchUploadProgressRecord(uploadProgressId, {
         status: "ready",
         phase: "saving_results",
+        uploadTraceId,
         fileHash: mcqResult.fileHash,
         progressPagesProcessed: mcqResult.pageCount ?? pageCount,
         totalPages: mcqResult.pageCount ?? pageCount,
+      });
+      logUploadPipeline(uploadTraceId, "browser_result_ready", {
+        fileHash: mcqResult.fileHash,
+        questionCount: mcqResult.mcqs.length,
+        pageCount: mcqResult.pageCount ?? pageCount,
       });
       captureConversionEvent("first_extraction_completed", {
         duration_seconds: Math.round((Date.now() - startedAt) / 100) / 10,
@@ -512,8 +617,20 @@ export async function processPdfUploads(
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "File extraction failed.";
+      if (isBackgroundExtractionInProgressMessage(message)) {
+        patchUploadProgressRecord(uploadProgressId, {
+          status: "processing",
+          phase: "checking_status",
+          error: undefined,
+        });
+        continue;
+      }
       patchUploadProgressRecord(uploadProgressId, {
         status: "failed",
+        uploadTraceId,
+        error: message,
+      });
+      logUploadPipeline(uploadTraceId, "browser_upload_failed", {
         error: message,
       });
       if (!failureTracked) {
@@ -524,6 +641,8 @@ export async function processPdfUploads(
         });
       }
       throw error;
+    } finally {
+      console.timeEnd(`[upload ${uploadTraceId}] total`);
     }
   }
 
@@ -558,12 +677,105 @@ export async function resumePersistedExtractionJob(
     });
     return queue;
   } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "File extraction failed.";
+
+    if (isBackgroundExtractionInProgressMessage(message)) {
+      try {
+        const result = await restartStoredSourceExtraction(record);
+        const queue = await finalizeExtractionResult({
+          result: {
+            ...result,
+            fileName: result.fileName ?? record.fileName,
+          },
+          queue: options?.append === false ? [] : loadFiles(),
+          addedBy: options?.addedBy,
+        });
+        saveFileQueue(queue);
+        patchUploadProgressRecord(record.id, {
+          status: "ready",
+          fileHash: result.fileHash,
+          progressPagesProcessed: result.pageCount,
+          totalPages: result.pageCount,
+        });
+        return queue;
+      } catch (retryError) {
+        patchUploadProgressRecord(record.id, {
+          status: "failed",
+          error:
+            retryError instanceof Error
+              ? retryError.message
+              : "File extraction failed.",
+        });
+        return null;
+      }
+    }
+
     patchUploadProgressRecord(record.id, {
       status: "failed",
-      error: error instanceof Error ? error.message : "File extraction failed.",
+      error: message,
     });
     return null;
   }
+}
+
+async function restartStoredSourceExtraction(
+  record: UploadProgressRecord,
+): Promise<ExtractionApiResponse> {
+  if (!record.fileHash) {
+    throw new Error("Upload is missing a file id. Upload the file again.");
+  }
+
+  patchUploadProgressRecord(record.id, {
+    status: "queued",
+    phase: "queued",
+    error: undefined,
+  });
+
+  const response = await fetch("/api/pdf/mcqs", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      uploadTraceId: record.uploadTraceId,
+      sourceAlreadyStored: true,
+      fileHash: record.fileHash,
+      fileName: record.fileName,
+      mimeType: inferUploadMimeTypeFromName(record.fileName),
+      fileSizeBytes: record.fileSize,
+      pageCount: record.totalPages ?? 1,
+      extractionMode: loadPdfQuizSettings().extractionMode,
+    }),
+  });
+  const payload = await readExtractionUploadResponse(response);
+
+  if (!payload) {
+    throw new Error(
+      response.ok
+        ? "Upload succeeded but the server returned an empty response."
+        : "Upload failed temporarily. Please try again.",
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(extractionErrorMessage(payload));
+  }
+
+  if (response.status === 202 && "jobId" in payload) {
+    patchUploadProgressRecord(record.id, {
+      status: payload.status === "queued" ? "queued" : "processing",
+      phase: payload.status === "queued" ? "queued" : "reading_pages",
+      jobId: payload.jobId,
+      fileHash: payload.fileHash,
+      totalPages: payload.pageCount ?? record.totalPages,
+      progressPagesProcessed: 0,
+      error: undefined,
+    });
+    return await pollExtractionJob(payload.jobId, { uploadProgressId: record.id });
+  }
+
+  return payload as ExtractionApiResponse;
 }
 
 async function indexSourceChunksForRag(args: {

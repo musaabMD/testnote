@@ -35,13 +35,15 @@ export function getUploadExtension(file: File): string {
   return file.name.toLowerCase().split(".").pop() ?? "";
 }
 
-export function getUnsupportedUploadReason(file: File): string | null {
-  const extension = getUploadExtension(file);
+export function getUnsupportedUploadReasonForNameAndMime(
+  fileName: string,
+  mimeType: string,
+): string | null {
+  const extension = fileName.toLowerCase().split(".").pop() ?? "";
   if (REJECTED_DOCUMENT_EXTENSIONS.has(extension)) {
     return "DOC, DOCX, PPT, and PPTX uploads are not supported yet. Export the file to PDF and upload the PDF.";
   }
 
-  const mimeType = inferUploadMimeType(file);
   if (
     mimeType === "application/pdf" ||
     mimeType.startsWith("image/") ||
@@ -53,6 +55,13 @@ export function getUnsupportedUploadReason(file: File): string | null {
   }
 
   return "Unsupported file type. Upload a PDF, image, text, markdown, or RTF file.";
+}
+
+export function getUnsupportedUploadReason(file: File): string | null {
+  return getUnsupportedUploadReasonForNameAndMime(
+    file.name,
+    inferUploadMimeType(file),
+  );
 }
 
 export function isSupportedUploadFile(file: File): boolean {
@@ -76,10 +85,13 @@ export function assertSupportedUploadFiles(files: FileList | File[] | null): Fil
   return list;
 }
 
-export function inferUploadMimeType(file: File): string {
-  if (file.type) return file.type;
+export function inferUploadMimeTypeFromName(
+  fileName: string,
+  mimeType?: string,
+): string {
+  if (mimeType) return mimeType;
 
-  const extension = file.name.toLowerCase().split(".").pop();
+  const extension = fileName.toLowerCase().split(".").pop();
   if (extension === "pdf") return "application/pdf";
   if (extension === "png") return "image/png";
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
@@ -103,4 +115,8 @@ export function inferUploadMimeType(file: File): string {
   if (extension === "webm") return "video/webm";
 
   return "application/octet-stream";
+}
+
+export function inferUploadMimeType(file: File): string {
+  return inferUploadMimeTypeFromName(file.name, file.type);
 }

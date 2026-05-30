@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { r2 } from "./r2";
 
 const extractionRecord = v.object({
@@ -76,5 +76,59 @@ export const getMyExtraction = query({
       .first();
 
     return row ? await mapExtractionRecord(row) : null;
+  },
+});
+
+export const deleteMyExtraction = mutation({
+  args: { fileHash: v.string() },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { deleted: false };
+
+    const row = await ctx.db
+      .query("pdfExtractionRecords")
+      .withIndex("by_clerk_user_file_hash", (q) =>
+        q.eq("clerkUserId", identity.subject).eq("fileHash", args.fileHash),
+      )
+      .first();
+
+    if (row) {
+      if (row.payloadR2Key) {
+        await r2.deleteObject(ctx, row.payloadR2Key).catch(() => {});
+      }
+      await ctx.db.delete(row._id);
+    }
+
+    const sourceRows = await ctx.db
+      .query("sourceFiles")
+      .withIndex("by_clerk_user_file_hash", (q) =>
+        q.eq("clerkUserId", identity.subject).eq("fileHash", args.fileHash),
+      )
+      .collect();
+
+    for (const source of sourceRows) {
+      if (source.storageId) {
+        await ctx.storage.delete(source.storageId).catch(() => {});
+      }
+      if (source.r2Key) {
+        await r2.deleteObject(ctx, source.r2Key).catch(() => {});
+      }
+      await ctx.db.delete(source._id);
+    }
+
+    const questionSources = await ctx.db
+      .query("questionSources")
+      .withIndex("by_file_id", (q) => q.eq("fileId", args.fileHash))
+      .collect();
+
+    for (const source of questionSources) {
+      if (source.previewR2Key) {
+        await r2.deleteObject(ctx, source.previewR2Key).catch(() => {});
+      }
+      await ctx.db.delete(source._id);
+    }
+
+    return { deleted: Boolean(row || sourceRows.length || questionSources.length) };
   },
 });

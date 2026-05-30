@@ -14,6 +14,7 @@ export type ExtractionJobRecord = {
   id: string;
   extractionKey?: string;
   ownerId?: string;
+  uploadTraceId?: string;
   fileHash: string;
   fileName?: string;
   mimeType?: string;
@@ -25,12 +26,23 @@ export type ExtractionJobRecord = {
   totalPages: number;
   error?: string;
   failureReason?: string;
+  sourcePersistStartedAt?: number;
+  sourcePersistedAt?: number;
+  queuedAt?: number;
+  workerClaimedAt?: number;
+  extractionStartedAt?: number;
+  extractionFinishedAt?: number;
+  readyAt?: number;
+  failedAt?: number;
+  errorCode?: string;
+  errorMessage?: string;
   createdAt: number;
   updatedAt: number;
 };
 
 export type WorkerExtractionJob = {
   jobId: string;
+  uploadTraceId?: string;
   fileHash: string;
   fileName?: string;
   mimeType?: string;
@@ -107,6 +119,7 @@ async function syncJobToConvex(job: ExtractionJobRecord): Promise<void> {
     jobId: job.id,
     extractionKey: job.extractionKey,
     ownerId: job.ownerId,
+    uploadTraceId: job.uploadTraceId,
     fileHash: job.fileHash,
     fileName: job.fileName,
     mimeType: job.mimeType,
@@ -118,6 +131,16 @@ async function syncJobToConvex(job: ExtractionJobRecord): Promise<void> {
     totalPages: job.totalPages,
     error: job.error,
     failureReason: job.failureReason,
+    sourcePersistStartedAt: job.sourcePersistStartedAt,
+    sourcePersistedAt: job.sourcePersistedAt,
+    queuedAt: job.queuedAt,
+    workerClaimedAt: job.workerClaimedAt,
+    extractionStartedAt: job.extractionStartedAt,
+    extractionFinishedAt: job.extractionFinishedAt,
+    readyAt: job.readyAt,
+    failedAt: job.failedAt,
+    errorCode: job.errorCode,
+    errorMessage: job.errorMessage,
   });
 }
 
@@ -136,6 +159,7 @@ async function getConvexJob(jobId: string): Promise<ExtractionJobRecord | null> 
     id: row.jobId,
     extractionKey: row.extractionKey,
     ownerId: row.ownerId,
+    uploadTraceId: row.uploadTraceId,
     fileHash: row.fileHash,
     fileName: row.fileName,
     mimeType: row.mimeType,
@@ -147,6 +171,16 @@ async function getConvexJob(jobId: string): Promise<ExtractionJobRecord | null> 
     totalPages: row.totalPages,
     error: row.error,
     failureReason: row.failureReason,
+    sourcePersistStartedAt: row.sourcePersistStartedAt,
+    sourcePersistedAt: row.sourcePersistedAt,
+    queuedAt: row.queuedAt,
+    workerClaimedAt: row.workerClaimedAt,
+    extractionStartedAt: row.extractionStartedAt,
+    extractionFinishedAt: row.extractionFinishedAt,
+    readyAt: row.readyAt,
+    failedAt: row.failedAt,
+    errorCode: row.errorCode,
+    errorMessage: row.errorMessage,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -178,6 +212,7 @@ export async function createExtractionJob(args: {
   jobId?: string;
   extractionKey?: string;
   ownerId?: string;
+  uploadTraceId?: string;
   fileHash: string;
   fileName?: string;
   mimeType?: string;
@@ -185,6 +220,9 @@ export async function createExtractionJob(args: {
   extractionModel?: string;
   totalPages: number;
   clerkUserId?: string;
+  sourcePersistStartedAt?: number;
+  sourcePersistedAt?: number;
+  queuedAt?: number;
 }): Promise<ExtractionJobRecord> {
   assertProductionServerStorage();
 
@@ -193,6 +231,7 @@ export async function createExtractionJob(args: {
     id: args.jobId ?? randomUUID(),
     extractionKey: args.extractionKey,
     ownerId: args.ownerId,
+    uploadTraceId: args.uploadTraceId,
     fileHash: args.fileHash,
     fileName: args.fileName,
     mimeType: args.mimeType,
@@ -202,6 +241,9 @@ export async function createExtractionJob(args: {
     status: "queued",
     progressPagesProcessed: 0,
     totalPages: args.totalPages,
+    sourcePersistStartedAt: args.sourcePersistStartedAt,
+    sourcePersistedAt: args.sourcePersistedAt,
+    queuedAt: args.queuedAt ?? now,
     createdAt: now,
     updatedAt: now,
   };
@@ -223,7 +265,18 @@ export async function updateExtractionJob(
   patch: Partial<
     Pick<
       ExtractionJobRecord,
-      "status" | "progressPagesProcessed" | "totalPages" | "error" | "failureReason"
+      | "status"
+      | "progressPagesProcessed"
+      | "totalPages"
+      | "error"
+      | "failureReason"
+      | "workerClaimedAt"
+      | "extractionStartedAt"
+      | "extractionFinishedAt"
+      | "readyAt"
+      | "failedAt"
+      | "errorCode"
+      | "errorMessage"
     >
   >,
 ): Promise<ExtractionJobRecord | null> {
@@ -248,6 +301,16 @@ export async function updateExtractionJob(
 
   const sanitizedPatch = {
     ...patch,
+    ...(patch.status === "ready" && patch.readyAt === undefined
+      ? { readyAt: Date.now(), extractionFinishedAt: Date.now() }
+      : {}),
+    ...(patch.status === "failed" && patch.failedAt === undefined
+      ? {
+          failedAt: Date.now(),
+          errorCode: patch.failureReason,
+          errorMessage: patch.error,
+        }
+      : {}),
     ...(patch.error !== undefined
       ? { error: sanitizeUserFacingError(patch.error) }
       : {}),
@@ -326,6 +389,10 @@ export async function claimQueuedExtractionJobForUpload(args: {
   extractionModel?: string;
   clerkUserId?: string;
   totalPages: number;
+  uploadTraceId?: string;
+  sourcePersistStartedAt?: number;
+  sourcePersistedAt?: number;
+  queuedAt?: number;
   staleAfterMs?: number;
   retryCooldownMs?: number;
 }): Promise<QueuedExtractionJobClaim | null> {
@@ -346,12 +413,16 @@ export async function claimQueuedExtractionJobForUpload(args: {
       jobId,
       ownerId,
       fileHash: args.fileHash,
+      uploadTraceId: args.uploadTraceId,
       fileName: args.fileName,
       mimeType: args.mimeType,
       extractionMode: args.extractionMode,
       extractionModel: args.extractionModel,
       clerkUserId: args.clerkUserId,
       totalPages: args.totalPages,
+      sourcePersistStartedAt: args.sourcePersistStartedAt,
+      sourcePersistedAt: args.sourcePersistedAt,
+      queuedAt: args.queuedAt ?? Date.now(),
       staleAfterMs: args.staleAfterMs ?? 10 * 60 * 1000,
       retryCooldownMs: args.retryCooldownMs ?? 60 * 1000,
     },

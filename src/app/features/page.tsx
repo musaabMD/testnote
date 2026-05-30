@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import {
   BarChart3,
   BookMarked,
@@ -474,36 +473,19 @@ function FeatureArtwork({ feature }: { feature: FeatureStory }) {
 }
 
 function FeatureArticle({ feature }: { feature: FeatureStory }) {
-  const Icon = feature.icon;
-
   return (
     <article className="grid gap-5">
       <FeatureArtwork feature={feature} />
-      <div>
-        <div className="flex items-center gap-3">
-          <span className={`grid size-10 place-items-center rounded-lg ${feature.accent}`}>
-            <Icon className="size-5" aria-hidden />
-          </span>
-          <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-            {feature.eyebrow}
-          </p>
-        </div>
+      <div className="text-center">
+        <p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+          {feature.eyebrow}
+        </p>
         <h2 className="mt-4 font-[family-name:var(--font-sora)] text-2xl font-black leading-tight text-slate-950">
           {feature.title}
         </h2>
-        <p className="mt-3 text-base font-medium leading-7 text-slate-600">
+        <p className="mx-auto mt-3 max-w-xl text-base font-medium leading-7 text-slate-600">
           {feature.description}
         </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          {feature.proof.map((item) => (
-            <span
-              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-black text-slate-600"
-              key={item}
-            >
-              {item}
-            </span>
-          ))}
-        </div>
       </div>
     </article>
   );
@@ -513,7 +495,7 @@ export default function FeaturesPage() {
   const [primaryFeature, ...secondaryFeatures] = FEATURE_STORIES;
 
   return (
-    <main className="min-h-screen bg-[#f5faf4] text-slate-950">
+    <main className="min-h-screen bg-white text-slate-950">
       <PublicHeader />
 
       <section className="mx-auto max-w-[930px] px-5 pb-12 pt-16 text-center sm:px-6 sm:pb-16 sm:pt-24">
@@ -540,33 +522,6 @@ export default function FeaturesPage() {
         </div>
       </section>
 
-      <section className="border-t border-emerald-900/10 bg-white">
-        <div className="mx-auto grid max-w-[1120px] gap-6 px-5 py-14 sm:px-6 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div>
-            <h2 className="font-[family-name:var(--font-sora)] text-3xl font-black tracking-tight text-slate-950">
-              Try the workflow with your own notes.
-            </h2>
-            <p className="mt-3 max-w-2xl text-base font-medium leading-7 text-slate-600">
-              Upload a file, generate questions, and choose the study mode that
-              matches what you need today.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-            <Link
-              href="/"
-              className="inline-flex h-11 items-center justify-center rounded-full bg-slate-950 px-6 text-sm font-black text-white transition hover:bg-slate-800 active:scale-[0.98]"
-            >
-              Upload a file
-            </Link>
-            <Link
-              href="/pricing"
-              className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 bg-white px-6 text-sm font-black text-slate-700 transition hover:border-slate-300 hover:text-slate-950 active:scale-[0.98]"
-            >
-              View pricing
-            </Link>
-          </div>
-        </div>
-      </section>
     </main>
   );
 }

@@ -21,6 +21,7 @@
     "test:publish-readiness": "tsx scripts/publish-verification.mts",
     "report:performance": "tsx scripts/internal-performance-baseline.mts",
     "report:cost": "tsx scripts/internal-cost-report.mts",
+    "report:extraction-queue": "tsx scripts/extraction-queue-report.mts",
     "report:bundle": "tsx scripts/internal-bundle-report.mts"
   },
   "dependencies": {

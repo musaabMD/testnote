@@ -32,6 +32,7 @@ export const getMyUsageDashboard = query({
     v.object({
       plan: v.string(),
       planLabel: v.string(),
+      billingStatus: v.string(),
       creditsRemaining: v.number(),
       creditsAllowance: v.number(),
       streak: v.number(),
@@ -76,6 +77,7 @@ export const getMyUsageDashboard = query({
     return {
       plan,
       planLabel: planLabel[plan],
+      billingStatus: user?.billingStatus ?? "none",
       creditsRemaining: Math.max(0, allowance - usedCredits),
       creditsAllowance: allowance,
       streak: user?.streak ?? 0,
