@@ -1085,7 +1085,6 @@ export function QuizModePanel({
             fileId={file.id}
             onShowPage={onShowSourcePage}
             pageNumbers={pageNumbers}
-            questionCounts={pageQuestionCounts}
             selectedPage={effectiveSelectedPage}
             onSelectPage={goToPage}
           />
@@ -1212,17 +1211,14 @@ function PageQuestionBrowser({
   onSelectPage,
   onShowPage,
   pageNumbers,
-  questionCounts,
   selectedPage,
 }: {
   fileId: string;
   onSelectPage: (pageNumber: number) => void;
   onShowPage?: (pageNumber: number) => void;
   pageNumbers: number[];
-  questionCounts: Map<number, number>;
   selectedPage: number;
 }) {
-  const selectedQuestionCount = questionCounts.get(selectedPage) ?? 0;
   const selectedPageIndex = pageNumbers.indexOf(selectedPage);
   const previousPage = selectedPageIndex > 0 ? pageNumbers[selectedPageIndex - 1] : null;
   const nextPage =
@@ -1237,7 +1233,7 @@ function PageQuestionBrowser({
       aria-label="Page pagination"
     >
       <button
-        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-slate-100 px-4 text-sm font-black text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+        className="grid size-10 place-items-center rounded-full bg-slate-100 text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!previousPage}
         onClick={() => {
           if (previousPage) onSelectPage(previousPage);
@@ -1246,15 +1242,11 @@ function PageQuestionBrowser({
         aria-label={previousPage ? `Back to page ${previousPage}` : "Already on the first page"}
       >
         <ChevronLeft className="size-4" aria-hidden />
-        Back
       </button>
 
-      <div className="min-w-36 px-3 text-center">
+      <div className="min-w-20 px-3 text-center">
         <p className="text-sm font-black text-slate-950">
-          Page {selectedPage} / {pageNumbers.length}
-        </p>
-        <p className="text-[11px] font-bold text-slate-400">
-          {selectedQuestionCount} Q
+          {selectedPage} / {pageNumbers.length}
         </p>
       </div>
 
@@ -1290,7 +1282,7 @@ function PageQuestionBrowser({
       )}
 
       <button
-        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-zinc-950 px-4 text-sm font-black text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+        className="grid size-10 place-items-center rounded-full bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
         disabled={!nextPage}
         onClick={() => {
           if (nextPage) onSelectPage(nextPage);
@@ -1298,7 +1290,6 @@ function PageQuestionBrowser({
         type="button"
         aria-label={nextPage ? `Next to page ${nextPage}` : "Already on the last page"}
       >
-        Next
         <ChevronRight className="size-4" aria-hidden />
       </button>
     </nav>
@@ -1443,7 +1434,7 @@ function QuizQuestionCard({
   if (choicePrepNeeded) return null;
 
   return (
-    <article className="rounded-3xl border border-slate-200 bg-sky-50/70 p-5 shadow-sm">
+    <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_18px_45px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
       <div className="flex items-start gap-3">
         <h3
           className={`min-w-0 flex-1 rounded-2xl text-lg font-semibold leading-7 text-slate-950 sm:text-xl sm:leading-8 ${

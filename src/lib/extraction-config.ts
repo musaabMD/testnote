@@ -2,7 +2,7 @@ import type { ExtractionMode } from "@/lib/quiz-settings";
 
 /** Bump when extraction logic/prompts change to invalidate cache entries. */
 export const APP_EXTRACTION_VERSION = "15";
-export const EXTRACTION_PROMPT_VERSION = "p9-mistral-ocr-recall";
+export const EXTRACTION_PROMPT_VERSION = "p10-source-explanations";
 export const EXTRACTION_SCHEMA_VERSION = "s3-page-audit-source-first";
 export const EXTRACTION_RENDER_VERSION = "r1";
 

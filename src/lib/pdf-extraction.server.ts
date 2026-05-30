@@ -2982,7 +2982,8 @@ Rules:
 - Never invent an answer unless the input clearly contains it. If no answer is present, use {"label":"","text":"","found_in_source":false}.
 - If choices are missing, keep options empty. Do not fabricate options in this extraction pass.
 - Deduplicate repeated copies of the same question.
-- Ignore headings, page numbers, watermarks, Telegram links, captions, explanations, and non-question numbered lists.
+- Do not count headings, page numbers, watermarks, Telegram links, captions, explanations, or non-question numbered lists as questions.
+- If an explanation/rationale/reference paragraph is clearly attached to a question or answer, preserve it in that question's explanation field instead of dropping it.
 - Return valid JSON only. No markdown.
 
 Input JSON:
@@ -3184,6 +3185,7 @@ Definitions:
 A real question may be a numbered exam-style question, a clinical vignette with answer options, a question ending with ?, a prompt like "Which of the following", a prompt like "What is the most appropriate", a stem followed by options A/B/C/D, or a recall-style question with "Answer:".
 
 Do not count page numbers, headings, explanations, repeated duplicate copies of the same question, watermarks, Telegram links, captions, or random numbered lists that are not questions.
+When an explanation, rationale, or reference paragraph is adjacent to a question or its answer, keep it as that question's explanation field.
 
 Duplicate handling:
 If the same question appears twice, count it once. If one copy is from parsed text and another copy is from OCR/image text, keep the cleaner version but include both source block IDs if useful.

@@ -30,7 +30,12 @@ type HeaderActionsProps = {
 
 function Logo() {
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label={APP_NAME}>
+    <Link
+      href="/"
+      prefetch={false}
+      className="flex shrink-0 items-center gap-2.5"
+      aria-label={APP_NAME}
+    >
       <Image
         alt={APP_NAME}
         className="size-[34px] rounded-xl object-contain"
@@ -69,6 +74,7 @@ function LocalAuthActions({ layout = "desktop", onAction }: HeaderActionsProps) 
     >
       <Link
         href={DASHBOARD_HREF}
+        prefetch={false}
         className={getSecondaryButtonClass(layout)}
         onClick={onAction}
       >
@@ -76,6 +82,7 @@ function LocalAuthActions({ layout = "desktop", onAction }: HeaderActionsProps) 
       </Link>
       <Link
         href={DASHBOARD_HREF}
+        prefetch={false}
         className={getPrimaryButtonClass(layout)}
         onClick={() => {
           captureConversionEvent("signup_cta_clicked", {
@@ -119,6 +126,7 @@ function ClerkAuthActions({ layout = "desktop", onAction }: HeaderActionsProps) 
       >
         <Link
           href={DASHBOARD_HREF}
+          prefetch={false}
           className={
             layout === "mobile"
               ? "flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-zinc-950 text-sm font-bold text-white transition hover:bg-zinc-800"
@@ -218,6 +226,7 @@ function SiteHeader({
               <Link
                 key={link.label}
                 href={link.href}
+                prefetch={false}
                 className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
               >
                 {link.label}
@@ -256,6 +265,7 @@ function SiteHeader({
               <Link
                 key={link.label}
                 href={link.href}
+                prefetch={false}
                 className="rounded-2xl px-4 py-3 text-[15px] font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
                 onClick={() => setMenuOpen(false)}
               >

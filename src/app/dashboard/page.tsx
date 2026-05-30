@@ -222,7 +222,12 @@ export default function DashboardPage() {
 
       <header className="sticky top-0 z-50 bg-white/90 px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-white/78">
         <div className="mx-auto flex h-16 max-w-[1100px] items-center gap-3">
-          <Link href="/" className="flex shrink-0 items-center gap-2" aria-label={`${APP_NAME} home`}>
+          <Link
+            href="/"
+            prefetch={false}
+            className="flex shrink-0 items-center gap-2"
+            aria-label={`${APP_NAME} home`}
+          >
             <Image
               alt={APP_NAME}
               className="size-8 rounded-xl object-contain"

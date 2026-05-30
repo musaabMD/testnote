@@ -305,6 +305,8 @@ function coerceMcqItem(item: unknown, index: number): PdfMcq | null {
   const answerLabelFromString = /^[A-E]$/i.test(rawAnswerText)
     ? rawAnswerText.toUpperCase()
     : "";
+  const explanation = asString(raw.explanation).trim();
+  const notes = asStringArray(raw.notes ?? raw.note);
 
   if (!questionText && !question && !options.length) return null;
 
@@ -325,8 +327,8 @@ function coerceMcqItem(item: unknown, index: number): PdfMcq | null {
       asString(answer?.text).trim() ||
       (answerLabelFromString ? "" : rawAnswerText) ||
       undefined,
-    explanation: asString(raw.explanation).trim() || undefined,
-    notes: asStringArray(raw.notes ?? raw.note),
+    explanation: explanation || undefined,
+    notes: notes.length ? notes : explanation ? [explanation] : undefined,
     imageIds: asStringArray(raw.imageIds),
     imageUrls: asStringArray(raw.imageUrls),
     rawJson: raw.rawJson ?? raw,

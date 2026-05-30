@@ -45,6 +45,44 @@ describe("source-first model output coercion", () => {
     assert.equal(result.mcqs[0]?.correctAnswer, "B");
     assert.equal(result.mcqs[0]?.answer, "Correct the anemia");
   });
+
+  it("preserves source-first explanation text as quiz notes", () => {
+    const result = coercePdfMcqResult({
+      title: "Preventive Medicine MCQs",
+      summary: "Vaccination questions",
+      document_has_questions: true,
+      distinct_question_count: 1,
+      questions: [
+        {
+          question_id_temp: "q1",
+          type: "extracted",
+          page_number: 2,
+          source_block_ids: ["p2_b4"],
+          source_snippet: "Patient on chemotherapy asks about vaccination",
+          question_number_original: "7",
+          stem: "A patient receiving chemotherapy asks which vaccine is safe.",
+          options: {
+            A: "MMR",
+            B: "Varicella",
+            C: "Inactivated influenza",
+            D: "Live attenuated influenza",
+          },
+          answer: {
+            label: "C",
+            text: "Inactivated influenza",
+            found_in_source: true,
+          },
+          explanation:
+            "Live vaccines are avoided during chemotherapy; inactivated influenza vaccine is safe.",
+        },
+      ],
+    });
+
+    assert.ok(result);
+    assert.deepEqual(result.mcqs[0]?.notes, [
+      "Live vaccines are avoided during chemotherapy; inactivated influenza vaccine is safe.",
+    ]);
+  });
 });
 
 describe("Mistral OCR source-first extraction", () => {

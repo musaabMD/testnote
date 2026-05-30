@@ -28,6 +28,6 @@ export default clerkProxy ?? localProxy;
 
 export const config = {
   matcher: [
-    "/((?!api/pdf/mcqs/worker|_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ico|ttf|woff2?|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/((?!api/pdf/mcqs/worker|_next|[^?]*\\.(?:html?|css|m?js(?!on)|jpe?g|webp|png|gif|svg|ico|ttf|woff2?|csv|docx?|xlsx?|zip|webmanifest)).*)",
   ],
 };
